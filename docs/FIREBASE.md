@@ -104,17 +104,18 @@ export const firebaseConfig: FirebaseOptions = {
 
 ---
 
-## 5. Habilitar el login con Google
+## 5. Habilitar Google y el acceso por email
 
 1. En Firebase Console, andá a **Compilación → Authentication**.
 2. Hacé clic en **Comenzar**.
-3. En **Sign-in method**, habilitá **Google**.
-4. Elegí un email de soporte y guardá.
-5. En **Authentication → Settings → Authorized domains**, verificá que estén:
+3. En **Sign-in method**, habilitá **Google** y elegí un email de soporte.
+4. Habilitá **Email/Password**.
+5. Dentro de Email/Password, habilitá también **Email link (passwordless sign-in)**.
+6. En **Authentication → Settings → Authorized domains**, verificá que estén:
    - `localhost`
    - tu dominio de Netlify (cuando publiques la app)
 
-> El login con usuario y contraseña ya no se usa. Puede quedar deshabilitado en Firebase Console.
+> El login por contraseña no se usa. El acceso por email es **sin contraseña**: la app envía un enlace mágico al correo y al abrirlo se inicia la sesión.
 >
 > El login con Google usa **popup** en escritorio y **redirect** en celular/PWA, porque los navegadores móviles suelen bloquear los popups. Se agregó `Cross-Origin-Opener-Policy: same-origin-allow-popups` para evitar problemas de COOP.
 >
@@ -258,7 +259,12 @@ npm install
 npm start
 ```
 
-Abrí <http://localhost:4200> y hacé clic en **Continuar con Google**.
+Abrí <http://localhost:4200> y elegí uno de los dos métodos:
+
+- **Continuar con Google**.
+- **Entrar con tu correo**: escribí el email autorizado y hacé clic en **Enviar enlace de acceso**. Revisá el correo y abrí el enlace.
+
+En el celular, Google usa redirect automáticamente. Si el popup de Google no aparece o el redirect falla, usá el enlace por email.
 
 - La primera vez, la app crea `households/casa` automáticamente.
 - Si aparece “Tu cuenta no tiene acceso al hogar”, seguí el paso 6 para agregar tu email al hogar.
@@ -421,18 +427,22 @@ Verificá los límites actuales en <https://firebase.google.com/pricing>.
 | Error | Causa probable | Solución |
 |---|---|---|
 | `auth/api-key-not-valid` | Configuración incorrecta o incompleta | Revisá `src/environments/firebase.config.ts` |
-| `auth/operation-not-allowed` | Google no habilitado | Authentication → Sign-in method → Google |
+| `auth/operation-not-allowed` | El proveedor no está habilitado | Authentication → Sign-in method → Google y Email/Password + Email link |
 | En el celular no aparece el popup de Google | Es esperado: en móvil se usa redirect | El selector de Google se abre en la misma pestaña |
 | En el celular vuelve al login sin elegir cuenta | Dominio no autorizado o almacenamiento bloqueado | Agregá el dominio de Netlify en Authorized domains y permití cookies/almacenamiento |
 | `auth/unauthorized-domain` | El dominio no está autorizado | Authentication → Settings → Authorized domains |
-| `auth/popup-blocked` | El navegador bloqueó la ventana | Habilitá las ventanas emergentes; la app intenta redirect como fallback |
-| `auth/popup-closed-by-user` | Se cerró la ventana de Google | Intentá de nuevo |
-| Aviso `Cross-Origin-Opener-Policy would block window.close` | Es de la ventana emergente de Google | Es un aviso; el header `same-origin-allow-popups` ya está configurado. Si el login no completa, probá sin extensiones |
-| Con Brave, después de elegir la cuenta vuelve al login | Brave bloquea almacenamiento de terceros de `firebaseapp.com` | Bajá Shields para el sitio o permití cookies/almacenamiento de terceros para `firebaseapp.com`. El popup es el método principal |
+| `auth/unauthorized-continue-uri` | El dominio del enlace mágico no está autorizado | Agregá el dominio en Authentication → Settings → Authorized domains |
+| `auth/invalid-action-code` | El enlace ya se usó o no es válido | Pedí un enlace nuevo |
+| `auth/expired-action-code` | El enlace expiró | Pedí un enlace nuevo |
+| No llega el email con el enlace | Spam, correo incorrecto o límite de envíos | Revisá spam, el email y la cuota de Firebase |
+| `auth/popup-blocked` | El navegador bloqueó la ventana | Habilitá las ventanas emergentes o usá el enlace por email |
+| `auth/popup-closed-by-user` | Se cerró la ventana de Google | Intentá de nuevo o usá el enlace por email |
+| Aviso `Cross-Origin-Opener-Policy would block window.close` | Es de la ventana emergente de Google | Es un aviso; el header `same-origin-allow-popups` ya está configurado. Si el login no completa, probá sin extensiones o usá email |
+| Con Brave, después de elegir la cuenta vuelve al login | Brave bloquea almacenamiento de terceros de `firebaseapp.com` | Bajá Shields para el sitio o usá el enlace por email |
 | `play.google.com/log ... ERR_BLOCKED_BY_CLIENT` | Brave bloquea telemetría de Google | Es inocuo, no afecta el login |
 | `permission-denied` | El email no está en `config/access.allowedEmails`, no es miembro del hogar o las reglas no se publicaron | Revisá el paso 6 y el paso 9 |
 | `Missing or insufficient permissions` | Igual que el anterior | Revisá la lista de acceso, miembros y reglas |
-| La app muestra “Esta cuenta de Google no está autorizada” | El email no está en `config/access.allowedEmails` | Agregalo en Firestore y volvé a iniciar sesión |
+| La app muestra “Esta cuenta no está autorizada” | El email no está en `config/access.allowedEmails` | Agregalo en Firestore y volvé a iniciar sesión |
 | La app muestra “Tu cuenta no tiene acceso al hogar” | El email no está en `memberEmails` y el UID no está en `members` | Agregá uno de los dos en `households/casa` |
 | La primera cuenta no puede crear el hogar | Su email no está en `config/access.allowedEmails` o las reglas no se publicaron | Agregalo en Firestore, publicá las reglas y volvé a intentar |
 | La app dice “Firebase no está configurado” | Los valores siguen siendo `TU_...` | Pegá la configuración real |

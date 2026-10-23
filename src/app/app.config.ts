@@ -23,6 +23,10 @@ export const appConfig: ApplicationConfig = {
       },
     }),
     provideFirebase(),
-    provideAppInitializer(() => inject(AuthService).handleRedirectResult()),
+    provideAppInitializer(async () => {
+      const auth = inject(AuthService);
+      await auth.handleEmailLinkResult();
+      await auth.handleRedirectResult();
+    }),
   ],
 };

@@ -3,6 +3,9 @@ import { Router } from '@angular/router';
 import {
   GoogleAuthProvider,
   getRedirectResult,
+  isSignInWithEmailLink,
+  sendSignInLinkToEmail,
+  signInWithEmailLink,
   signInWithPopup,
   signInWithRedirect,
   signOut,
@@ -70,6 +73,76 @@ export class AuthService {
     }
 
     await signInWithRedirect(this.auth, this.googleProvider);
+  }
+
+  /**
+   * Envía un enlace mágico al email indicado.
+   * Requiere habilitar Email/Password + Email link en Firebase Authentication.
+   */
+  async sendEmailLink(email: string): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    const normalized = email.trim().toLowerCase();
+    const continueUrl = `${window.location.origin}/login?email=${encodeURIComponent(
+      normalized
+    )}`;
+
+    await sendSignInLinkToEmail(this.auth, normalized, {
+      url: continueUrl,
+      handleCodeInApp: true,
+    });
+
+    localStorage.setItem('emailForSignIn', normalized);
+  }
+
+  /**
+   * Completa el login si la URL actual es un enlace mágico de Firebase.
+   * Devuelve true si procesó un enlace.
+   */
+  async handleEmailLinkResult(): Promise<boolean> {
+    if (!isFirebaseConfigured()) {
+      return false;
+    }
+
+    const href = window.location.href;
+
+    if (!isSignInWithEmailLink(this.auth, href)) {
+      return false;
+    }
+
+    const url = new URL(href);
+    let email =
+      url.searchParams.get('email')?.trim().toLowerCase() ||
+      localStorage.getItem('emailForSignIn') ||
+      '';
+
+    if (!email) {
+      email =
+        window
+          .prompt('Ingresá el email con el que pediste el enlace')
+          ?.trim()
+          .toLowerCase() ?? '';
+    }
+
+    if (!email) {
+      this.setAuthError('EMAIL_FOR_SIGN_IN_REQUIRED');
+      return false;
+    }
+
+    try {
+      await signInWithEmailLink(this.auth, email, href);
+      localStorage.removeItem('emailForSignIn');
+      await this.enforceAllowlist();
+      return true;
+    } catch (error) {
+      await this.signOutSilently();
+      this.setAuthError(this.errorCode(error));
+      return false;
+    } finally {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }
 
   /** Completa un login con redirect al volver a la app. */
@@ -168,5 +241,15 @@ export class AuthService {
       (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
     return isMobile || isIPadOS || isStandalone;
+  }
+
+  private errorCode(error: unknown): string {
+    const code = (error as { code?: string } | null)?.code;
+
+    if (code) {
+      return code;
+    }
+
+    return error instanceof Error ? error.message : 'EMAIL_LINK_FAILED';
   }
 }

@@ -1,7 +1,9 @@
 import { Component, OnInit } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { CardModule } from '@openng/optimus-ui/card';
 import { ButtonModule } from '@openng/optimus-ui/button';
+import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { MessageModule } from '@openng/optimus-ui/message';
 import { AuthService } from '../../services/auth.service';
 import { AccessService } from '../../services/access.service';
@@ -10,7 +12,7 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CardModule, ButtonModule, MessageModule],
+  imports: [FormsModule, CardModule, ButtonModule, InputTextModule, MessageModule],
   template: `
     <div
       class="flex align-items-center justify-content-center min-h-screen bg-gray-100"
@@ -79,6 +81,56 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
             ¿No se abre la ventana? Usar redirección
           </button>
 
+          <div class="flex align-items-center gap-2 my-2">
+            <span
+              class="flex-1"
+              style="height:1px;background:var(--p-surface-200)"
+            ></span>
+            <span class="text-500 text-sm">o</span>
+            <span
+              class="flex-1"
+              style="height:1px;background:var(--p-surface-200)"
+            ></span>
+          </div>
+
+          <div class="flex flex-column gap-2">
+            <label for="email">Entrar con tu correo</label>
+            <input
+              pInputText
+              id="email"
+              type="email"
+              class="w-full"
+              [(ngModel)]="email"
+              placeholder="tu@gmail.com"
+              autocomplete="email"
+              [disabled]="sendingLink || loading"
+              (keyup.enter)="sendEmailLink()"
+            />
+            <button
+              pButton
+              type="button"
+              variant="outlined"
+              class="w-full"
+              [disabled]="sendingLink || loading"
+              (click)="sendEmailLink()"
+            >
+              @if (sendingLink) {
+                <i class="pi pi-spin pi-spinner"></i>
+                Enviando...
+              } @else {
+                <i class="pi pi-envelope"></i>
+                Enviar enlace de acceso
+              }
+            </button>
+
+            @if (linkSent) {
+              <p-message severity="success">
+                Te enviamos un enlace a {{ email }}. Revisá tu correo y abrí el
+                enlace.
+              </p-message>
+            }
+          </div>
+
           @if (errorMessage) {
             <p-message severity="error">
               {{ errorMessage }}
@@ -97,7 +149,10 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
 })
 export class LoginComponent implements OnInit {
   loading = false;
+  sendingLink = false;
+  linkSent = false;
   errorMessage = '';
+  email = '';
   readonly firebaseConfigured = isFirebaseConfigured();
 
   constructor(
@@ -154,10 +209,33 @@ export class LoginComponent implements OnInit {
     }
   }
 
+  async sendEmailLink(): Promise<void> {
+    this.errorMessage = '';
+    this.linkSent = false;
+
+    const email = this.email.trim();
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      this.errorMessage = 'Ingresá un correo electrónico válido.';
+      return;
+    }
+
+    this.sendingLink = true;
+
+    try {
+      await this.authService.sendEmailLink(email);
+      this.linkSent = true;
+    } catch (error) {
+      this.errorMessage = this.mapAuthError(error);
+    } finally {
+      this.sendingLink = false;
+    }
+  }
+
   private mapAuthError(error: unknown): string {
-    const message = error instanceof Error ? error.message : '';
-    const code = (error as { code?: string } | null)?.code ?? '';
-    const key = message || code;
+    const firebaseCode = (error as { code?: string } | null)?.code ?? '';
+    const customMessage = error instanceof Error ? error.message : '';
+    const key = firebaseCode || customMessage;
 
     if (key === 'FIREBASE_NOT_CONFIGURED') {
       return 'Firebase no está configurado. Completá src/environments/firebase.config.ts.';
@@ -165,7 +243,11 @@ export class LoginComponent implements OnInit {
 
     const messages: Record<string, string> = {
       EMAIL_NOT_ALLOWED:
-        'Esta cuenta de Google no está autorizada. Pedile al administrador que agregue tu email a config/access.allowedEmails en Firestore.',
+        'Esta cuenta no está autorizada. Pedile al administrador que agregue tu email a config/access.allowedEmails en Firestore.',
+      EMAIL_FOR_SIGN_IN_REQUIRED:
+        'Ingresá el mismo email con el que pediste el enlace.',
+      EMAIL_LINK_FAILED:
+        'No se pudo completar el login con el enlace. Pedí uno nuevo.',
       ACCESS_CONFIG_MISSING:
         'Falta la lista de acceso en Firestore. Creá el documento config/access con el campo allowedEmails.',
       ACCESS_CONFIG_INVALID:
@@ -176,9 +258,9 @@ export class LoginComponent implements OnInit {
       'auth/popup-closed-by-user': 'Inicio de sesión cancelado.',
       'auth/cancelled-popup-request': 'Inicio de sesión cancelado.',
       'auth/popup-blocked':
-        'El navegador bloqueó la ventana de Google. Habilitá las ventanas emergentes e intentá de nuevo.',
+        'El navegador bloqueó la ventana de Google. Probá con el enlace por email.',
       'auth/operation-not-allowed':
-        'Habilitá el proveedor Google en Firebase Authentication.',
+        'Habilitá el proveedor correspondiente en Firebase Authentication (Google o Email/Password + Email link).',
       'auth/unauthorized-domain':
         'Este dominio no está autorizado en Firebase Authentication. Agregalo en Authentication → Settings → Authorized domains.',
       'auth/account-exists-with-different-credential':
@@ -187,6 +269,18 @@ export class LoginComponent implements OnInit {
         'Sin conexión. Verificá tu conexión a internet.',
       'auth/internal-error':
         'Firebase devolvió un error interno. Intentá de nuevo.',
+      'auth/invalid-email': 'El correo electrónico no es válido.',
+      'auth/invalid-action-code':
+        'El enlace no es válido o ya se usó. Pedí uno nuevo.',
+      'auth/expired-action-code': 'El enlace expiró. Pedí uno nuevo.',
+      'auth/unauthorized-continue-uri':
+        'El dominio no está autorizado para el enlace. Agregalo en Authentication → Settings → Authorized domains.',
+      'auth/invalid-continue-uri':
+        'La URL de continuación no es válida. Revisá el dominio autorizado.',
+      'auth/quota-exceeded':
+        'Se superó el límite de enlaces. Intentá más tarde.',
+      'auth/too-many-requests':
+        'Demasiados intentos. Esperá unos minutos e intentá de nuevo.',
       'auth/api-key-not-valid':
         'La configuración de Firebase no es válida. Revisá firebase.config.ts.',
       'auth/invalid-api-key':

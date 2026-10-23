@@ -27,7 +27,7 @@ npm start
 Antes de usar la app:
 
 1. Completá `src/environments/firebase.config.ts` con la configuración de tu proyecto Firebase.
-2. Habilitá el proveedor **Google** en Firebase Authentication.
+2. Habilitá en Firebase Authentication: **Google** y **Email/Password + Email link**.
 3. Creá en Firestore el documento `config/access` con el campo `allowedEmails` (array) y los correos autorizados.
 4. Seguí la guía completa: **[docs/FIREBASE.md](docs/FIREBASE.md)**.
 
@@ -83,6 +83,7 @@ Solo los UID incluidos en `households/{householdId}.members` pueden leer y escri
 ## Notas
 
 - **Google en celular:** usa redirect automáticamente (el selector de Google se abre en la misma pestaña). En escritorio usa popup, con redirect como fallback.
+- **Alternativa por email:** si Google no abre, escribí tu correo autorizado y la app te envía un enlace mágico para entrar sin contraseña.
 - **Lista de acceso global:** solo los emails de `config/access.allowedEmails` pueden usar la app. El resto se desloguea automáticamente y las reglas también le bloquean los datos.
 - **Login con Google:** la primera cuenta autorizada crea `households/casa` automáticamente. Para sumar a otra persona, agregá su email a `config/access.allowedEmails`; si hay lugar, la app la suma al hogar sola.
 - **Optimus UI es MIT**: no requiere licencia, registro ni clave. Es la alternativa comunitaria compatible con la API de PrimeNG 22.
