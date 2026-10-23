@@ -1,89 +1,165 @@
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Gasto } from '../models/gasto.model';
-import { firstValueFrom } from 'rxjs';
+import { Injectable, inject } from '@angular/core';
+import {
+  Timestamp,
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  writeBatch,
+} from 'firebase/firestore';
+import type { DocumentData, Firestore } from 'firebase/firestore';
 import { environment } from '../../environments/environment';
+import { FIRESTORE } from '../firebase.providers';
+import type { Gasto, NuevoGasto } from '../models/gasto.model';
+
+/** Firestore permite hasta 500 operaciones por batch. */
+const BATCH_SIZE = 500;
 
 @Injectable({
   providedIn: 'root',
 })
 export class StorageService {
-  private readonly API_URL = environment.apiUrl;
+  private readonly firestore: Firestore = inject(FIRESTORE);
 
-  constructor(private http: HttpClient) {}
-
-  async getGastos(): Promise<Gasto[]> {
-    try {
-      const data: any[] = await firstValueFrom(
-        this.http.get<any[]>(`${this.API_URL}/gastos`)
-      );
-
-      return data.map((g: any) => ({
-        ...g,
-        fecha: new Date(g.fecha),
-        fechaRegistro: new Date(g.fechaRegistro),
-      }));
-    } catch (error) {
-      console.error('❌ Error al cargar gastos:', error);
-      return [];
-    }
+  /**
+   * Datos compartidos del hogar. La seguridad no depende de esta ruta:
+   * `firestore.rules` exige que el UID esté en `households/{id}.members`.
+   */
+  private get gastosCollection() {
+    return collection(
+      this.firestore,
+      'households',
+      environment.householdId,
+      'gastos'
+    );
   }
 
-  async addGasto(gasto: Omit<Gasto, 'id' | 'fechaRegistro'>): Promise<Gasto> {
-    const nuevoGasto: Gasto = {
+  async getGastos(): Promise<Gasto[]> {
+    const snapshot = await getDocs(
+      query(this.gastosCollection, orderBy('fecha', 'desc'))
+    );
+
+    return snapshot.docs.map((document) =>
+      this.toGasto(document.id, document.data())
+    );
+  }
+
+  async addGasto(gasto: NuevoGasto): Promise<Gasto> {
+    const fecha = this.parseDate(gasto.fecha);
+    const categoria = gasto.categoria.trim();
+    const usuario = gasto.usuario.trim();
+    const monto = Number(gasto.monto);
+
+    if (!categoria || !usuario || !Number.isFinite(monto) || monto <= 0) {
+      throw new Error('Los datos del movimiento no son válidos.');
+    }
+
+    const documentRef = await addDoc(this.gastosCollection, {
+      fecha: Timestamp.fromDate(fecha),
+      tipoOperacion: gasto.tipoOperacion,
+      categoria,
+      monto,
+      usuario,
+      fechaRegistro: serverTimestamp(),
+    });
+
+    return {
       ...gasto,
-      id: this.generateId(),
+      id: documentRef.id,
+      fecha,
+      categoria,
+      monto,
+      usuario,
       fechaRegistro: new Date(),
     };
-
-    try {
-      const response = await firstValueFrom(
-        this.http.post<Gasto>(`${this.API_URL}/gastos`, nuevoGasto)
-      );
-      console.log('✅ Gasto guardado:', response);
-      return response;
-    } catch (error) {
-      console.error('❌ Error al guardar gasto:', error);
-      throw error;
-    }
   }
 
   async deleteAllGastos(): Promise<void> {
-    try {
-      await firstValueFrom(this.http.delete(`${this.API_URL}/gastos`));
-      console.log('✅ Todos los gastos eliminados');
-    } catch (error) {
-      console.error('❌ Error al eliminar gastos:', error);
-      throw error;
+    const snapshot = await getDocs(this.gastosCollection);
+    const documents = snapshot.docs;
+
+    for (let index = 0; index < documents.length; index += BATCH_SIZE) {
+      const batch = writeBatch(this.firestore);
+
+      for (const document of documents.slice(index, index + BATCH_SIZE)) {
+        batch.delete(document.ref);
+      }
+
+      await batch.commit();
     }
   }
 
+  /**
+   * Importa un backup JSON. Si el registro trae un ID válido se reutiliza,
+   * por lo que volver a importar el mismo archivo actualiza en vez de duplicar.
+   */
   async importFromJSON(gastos: Gasto[]): Promise<number> {
-    try {
-      const response: any = await firstValueFrom(
-        this.http.put(`${this.API_URL}/gastos`, gastos)
+    const validos = gastos.filter((gasto) => {
+      const monto = Number(gasto.monto);
+
+      return (
+        !!gasto &&
+        (gasto.tipoOperacion === 'entrada' ||
+          gasto.tipoOperacion === 'salida') &&
+        typeof gasto.categoria === 'string' &&
+        gasto.categoria.trim().length > 0 &&
+        Number.isFinite(monto) &&
+        monto > 0
       );
-      console.log('✅ Datos importados:', response.count, 'registros');
-      return response.count;
-    } catch (error) {
-      console.error('❌ Error al importar gastos:', error);
-      throw error;
+    });
+
+    for (let index = 0; index < validos.length; index += BATCH_SIZE) {
+      const batch = writeBatch(this.firestore);
+
+      for (const gasto of validos.slice(index, index + BATCH_SIZE)) {
+        const fecha = this.parseDate(gasto.fecha);
+        const fechaRegistro = gasto.fechaRegistro
+          ? this.parseDate(gasto.fechaRegistro)
+          : fecha;
+        const documentId =
+          this.safeDocumentId(gasto.id) ?? doc(this.gastosCollection).id;
+
+        batch.set(doc(this.gastosCollection, documentId), {
+          fecha: Timestamp.fromDate(fecha),
+          tipoOperacion: gasto.tipoOperacion,
+          categoria: gasto.categoria.trim(),
+          monto: Number(gasto.monto),
+          usuario: (gasto.usuario || 'Importado').trim(),
+          fechaRegistro: Timestamp.fromDate(fechaRegistro),
+        });
+      }
+
+      await batch.commit();
     }
+
+    return validos.length;
   }
 
   exportToJSON(gastos: Gasto[]): string {
-    return JSON.stringify(gastos, null, 2);
+    return JSON.stringify(
+      gastos.map((gasto) => ({
+        ...gasto,
+        fecha: gasto.fecha.toISOString(),
+        fechaRegistro: gasto.fechaRegistro.toISOString(),
+      })),
+      null,
+      2
+    );
   }
 
   downloadJSON(gastos: Gasto[]): void {
     const json = this.exportToJSON(gastos);
-    const blob = new Blob([json], { type: 'application/json' });
-    const link = document.createElement('a');
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
 
-    link.setAttribute('href', url);
-    link.setAttribute('download', `gastos_backup_${new Date().getTime()}.json`);
-    link.style.visibility = 'hidden';
+    link.href = url;
+    link.download = `gastos_backup_${this.fileStamp()}.json`;
+    link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -102,22 +178,20 @@ export class StorageService {
       'Usuario',
       'Fecha Registro',
     ];
-    const rows = gastos.map((g) => [
-      g.id,
-      new Date(g.fecha).toLocaleDateString('es-PY'),
-      g.tipoOperacion === 'entrada' ? 'Entrada' : 'Salida',
-      g.categoria,
-      g.monto.toString(),
-      g.usuario,
-      new Date(g.fechaRegistro).toLocaleString('es-PY'),
+
+    const rows = gastos.map((gasto) => [
+      gasto.id,
+      this.formatDate(gasto.fecha),
+      gasto.tipoOperacion === 'entrada' ? 'Entrada' : 'Salida',
+      gasto.categoria,
+      gasto.monto.toString(),
+      gasto.usuario,
+      this.formatDateTime(gasto.fechaRegistro),
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
-    ].join('\n');
-
-    return csvContent;
+    return [headers, ...rows]
+      .map((row) => row.map((cell) => this.csvCell(cell)).join(','))
+      .join('\r\n');
   }
 
   downloadCSV(gastos: Gasto[]): void {
@@ -125,13 +199,15 @@ export class StorageService {
     if (!csv) return;
 
     const BOM = '\uFEFF';
-    const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+    const blob = new Blob([BOM + csv], {
+      type: 'text/csv;charset=utf-8;',
+    });
     const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
 
-    link.setAttribute('href', url);
-    link.setAttribute('download', `gastos_${new Date().getTime()}.csv`);
-    link.style.visibility = 'hidden';
+    link.href = url;
+    link.download = `gastos_${this.fileStamp()}.csv`;
+    link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -141,28 +217,43 @@ export class StorageService {
   parseJSONFile(file: File): Promise<Gasto[]> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
+
+      reader.onload = (event) => {
         try {
-          const content = e.target?.result as string;
-          const data = JSON.parse(content);
+          const content = String(event.target?.result ?? '');
+          const data: unknown = JSON.parse(content);
 
           if (!Array.isArray(data)) {
-            reject(new Error('El archivo JSON debe contener un array'));
+            reject(new Error('El archivo JSON debe contener un arreglo de gastos.'));
             return;
           }
 
-          const gastosImportados = data.map((g: any) => ({
-            ...g,
-            fecha: new Date(g.fecha),
-            fechaRegistro: new Date(g.fechaRegistro),
-          }));
+          const gastos = data
+            .filter(
+              (item): item is Record<string, unknown> =>
+                typeof item === 'object' && item !== null
+            )
+            .map((item) =>
+              this.toGasto(
+                typeof item['id'] === 'string' ? item['id'] : '',
+                item
+              )
+            )
+            .filter(
+              (gasto) => gasto.categoria.trim().length > 0 && gasto.monto > 0
+            );
 
-          resolve(gastosImportados);
+          resolve(gastos);
         } catch (error) {
-          reject(error);
+          reject(
+            error instanceof Error
+              ? error
+              : new Error('El archivo JSON no es válido.')
+          );
         }
       };
-      reader.onerror = reject;
+
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
       reader.readAsText(file);
     });
   }
@@ -175,13 +266,129 @@ export class StorageService {
   getStorageSizeFormatted(gastos: Gasto[]): string {
     const bytes = this.getStorageSize(gastos);
     if (bytes === 0) return '0 Bytes';
+
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const index = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return `${Math.round((bytes / Math.pow(k, index)) * 100) / 100} ${
+      sizes[index]
+    }`;
   }
 
-  private generateId(): string {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  private toGasto(id: string, data: DocumentData): Gasto {
+    const fecha = this.parseDate(data['fecha']);
+    const tipoOperacion: Gasto['tipoOperacion'] =
+      data['tipoOperacion'] === 'entrada' ? 'entrada' : 'salida';
+    const categoria =
+      typeof data['categoria'] === 'string' ? data['categoria'] : '';
+    const montoValue = data['monto'];
+    const monto =
+      typeof montoValue === 'number' ? montoValue : Number(montoValue);
+    const usuario =
+      typeof data['usuario'] === 'string' ? data['usuario'] : '';
+    const fechaRegistro = data['fechaRegistro']
+      ? this.parseDate(data['fechaRegistro'])
+      : fecha;
+
+    return {
+      id,
+      fecha,
+      tipoOperacion,
+      categoria,
+      monto: Number.isFinite(monto) ? monto : 0,
+      usuario,
+      fechaRegistro,
+    };
+  }
+
+  /**
+   * Convierte Timestamp de Firestore, ISO strings y fechas "yyyy-MM-dd".
+   * Las fechas sin hora se interpretan como medianoche local para evitar
+   * el clásico corrimiento de un día por UTC.
+   */
+  private parseDate(value: unknown): Date {
+    if (value instanceof Date) return value;
+    if (value instanceof Timestamp) return value.toDate();
+    if (typeof value === 'number') return new Date(value);
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+
+      if (dateOnly) {
+        return new Date(
+          Number(dateOnly[1]),
+          Number(dateOnly[2]) - 1,
+          Number(dateOnly[3])
+        );
+      }
+
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    if (value && typeof value === 'object') {
+      const timestampLike = value as {
+        seconds?: unknown;
+        toDate?: unknown;
+      };
+
+      if (typeof timestampLike.toDate === 'function') {
+        return (timestampLike.toDate as () => Date)();
+      }
+
+      if (typeof timestampLike.seconds === 'number') {
+        return new Date(timestampLike.seconds * 1000);
+      }
+    }
+
+    return new Date();
+  }
+
+  private safeDocumentId(id: string | undefined): string | null {
+    const value = typeof id === 'string' ? id.trim() : '';
+
+    if (
+      !value ||
+      value.includes('/') ||
+      value === '.' ||
+      value === '..' ||
+      /^__.*__$/.test(value)
+    ) {
+      return null;
+    }
+
+    return new TextEncoder().encode(value).length <= 1500 ? value : null;
+  }
+
+  private csvCell(value: unknown): string {
+    let text = String(value ?? '');
+
+    // Evita inyección de fórmulas al abrir el CSV en Excel/Sheets.
+    if (/^[=+\-@\t\r]/.test(text)) {
+      text = `'${text}`;
+    }
+
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  private formatDate(date: Date): string {
+    return new Intl.DateTimeFormat('es-PY', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  }
+
+  private formatDateTime(date: Date): string {
+    return new Intl.DateTimeFormat('es-PY', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  private fileStamp(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 }

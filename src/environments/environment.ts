@@ -1,8 +1,10 @@
+import { firebaseConfig } from './firebase.config';
+
 export const environment = {
   production: true,
-  apiUrl: 'https://backend-gastos-nkl5.onrender.com/api', // Ejemplo: http://192.168.1.100:3000/api
-  users: {
-    esposo: 'password123',
-    esposa: 'password456',
-  },
+  /** Activá esto solo si estás usando Firebase Emulator Suite en local. */
+  useEmulators: false,
+  /** ID del documento `households/{householdId}` que comparten ambos usuarios. */
+  householdId: 'casa',
+  firebase: firebaseConfig,
 };

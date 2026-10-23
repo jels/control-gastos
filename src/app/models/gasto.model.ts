@@ -8,6 +8,9 @@ export interface Gasto {
   fechaRegistro: Date;
 }
 
+/** Datos que envía la UI; Firestore genera el ID y la fecha de registro. */
+export type NuevoGasto = Omit<Gasto, 'id' | 'fechaRegistro'>;
+
 export const CATEGORIAS_ENTRADA = [
   'Sueldo',
   'Trabajo Extra',

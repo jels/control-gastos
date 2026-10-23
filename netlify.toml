@@ -6,3 +6,10 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Permite que los flujos de OAuth con ventana emergente conserven el opener.
+# El login actual usa redirect, pero este header evita problemas de COOP en el futuro.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"

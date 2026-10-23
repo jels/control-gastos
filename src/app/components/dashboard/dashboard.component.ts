@@ -1,26 +1,32 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ToolbarModule } from 'primeng/toolbar';
-import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
-import { DialogModule } from 'primeng/dialog';
-import { CalendarModule } from 'primeng/calendar';
-import { DropdownModule } from 'primeng/dropdown';
-import { InputNumberModule } from 'primeng/inputnumber';
-import { TableModule } from 'primeng/table';
-import { ToastModule } from 'primeng/toast';
-import { ConfirmDialogModule } from 'primeng/confirmdialog';
-import { FileUploadModule } from 'primeng/fileupload';
-import { TooltipModule } from 'primeng/tooltip';
-import { MessageService, ConfirmationService } from 'primeng/api';
+import { ToolbarModule } from '@openng/optimus-ui/toolbar';
+import { ButtonModule } from '@openng/optimus-ui/button';
+import { CardModule } from '@openng/optimus-ui/card';
+import { DialogModule } from '@openng/optimus-ui/dialog';
+import { DatePickerModule } from '@openng/optimus-ui/datepicker';
+import { SelectModule } from '@openng/optimus-ui/select';
+import { InputNumberModule } from '@openng/optimus-ui/inputnumber';
+import { TableModule } from '@openng/optimus-ui/table';
+import { ToastModule } from '@openng/optimus-ui/toast';
+import { ConfirmDialogModule } from '@openng/optimus-ui/confirmdialog';
+import { FileUploadModule } from '@openng/optimus-ui/fileupload';
+import { TooltipModule } from '@openng/optimus-ui/tooltip';
+import { MessageService, ConfirmationService } from '@openng/optimus-ui/api';
+import type { FileUpload } from '@openng/optimus-ui/fileupload';
 import { AuthService } from '../../services/auth.service';
 import { StorageService } from '../../services/storage.service';
 import {
-  Gasto,
+  HouseholdAccessError,
+  HouseholdService,
+} from '../../services/household.service';
+import { environment } from '../../../environments/environment';
+import {
   CATEGORIAS_ENTRADA,
   CATEGORIAS_SALIDA,
 } from '../../models/gasto.model';
+import type { Gasto, NuevoGasto } from '../../models/gasto.model';
 
 @Component({
   selector: 'app-dashboard',
@@ -32,8 +38,8 @@ import {
     ButtonModule,
     CardModule,
     DialogModule,
-    CalendarModule,
-    DropdownModule,
+    DatePickerModule,
+    SelectModule,
     InputNumberModule,
     TableModule,
     ToastModule,
@@ -44,70 +50,121 @@ import {
   providers: [MessageService, ConfirmationService],
   template: `
     <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
 
     <p-toolbar class="mb-3">
-      <div class="p-toolbar-group-start">
+      <ng-template #start>
         <h3 class="m-0">Control de Gastos - {{ currentUser }}</h3>
-      </div>
-      <div class="p-toolbar-group-end flex gap-2">
-        <p-button
-          icon="pi pi-plus"
-          (onClick)="showDialog()"
-          [rounded]="true"
-          severity="success"
-          pTooltip="Agregar gasto"
-          tooltipPosition="bottom"
-        ></p-button>
+      </ng-template>
 
-        <!-- <p-button icon="pi pi-upload" (onClick)="fileUpload.choose()" 
-                  [rounded]="true" severity="info"
-                  pTooltip="Importar JSON" tooltipPosition="bottom"></p-button>
-        
-        <p-button icon="pi pi-file" (onClick)="descargarJSON()" 
-                  [rounded]="true" severity="help"
-                  pTooltip="Descargar JSON" tooltipPosition="bottom"></p-button> -->
+      <ng-template #end>
+        <div class="flex flex-wrap gap-2">
+          @if (!accessDenied) {
+          <button
+            pButton
+            type="button"
+            rounded
+            iconOnly
+            severity="success"
+            pTooltip="Agregar gasto"
+            tooltipPosition="bottom"
+            aria-label="Agregar gasto"
+            (click)="showDialog()"
+          >
+            <i class="pi pi-plus"></i>
+          </button>
 
-        <p-button
-          label=".CSV"
-          icon="pi pi-download"
-          (onClick)="descargarCSV()"
-          [rounded]="true"
-          severity="secondary"
-          pTooltip="Descargar CSV"
-          tooltipPosition="bottom"
-        ></p-button>
+          <button
+            pButton
+            type="button"
+            rounded
+            iconOnly
+            severity="info"
+            pTooltip="Importar JSON (backup o migración)"
+            tooltipPosition="bottom"
+            aria-label="Importar JSON"
+            (click)="elegirArchivo()"
+          >
+            <i class="pi pi-upload"></i>
+          </button>
 
-        <p-button
-          icon="pi pi-refresh"
-          (onClick)="cargarGastos()"
-          [rounded]="true"
-          [outlined]="true"
-          pTooltip="Recargar datos"
-          tooltipPosition="bottom"
-        ></p-button>
+          <button
+            pButton
+            type="button"
+            rounded
+            iconOnly
+            severity="help"
+            pTooltip="Descargar JSON"
+            tooltipPosition="bottom"
+            aria-label="Descargar JSON"
+            (click)="descargarJSON()"
+          >
+            <i class="pi pi-file"></i>
+          </button>
 
-        <p-button
-          icon="pi pi-trash"
-          (onClick)="confirmarLimpiar()"
-          [rounded]="true"
-          severity="warning"
-          pTooltip="Limpiar datos"
-          tooltipPosition="bottom"
-        ></p-button>
+          <button
+            pButton
+            type="button"
+            rounded
+            severity="secondary"
+            pTooltip="Descargar CSV"
+            tooltipPosition="bottom"
+            (click)="descargarCSV()"
+          >
+            <i class="pi pi-download"></i>
+            .CSV
+          </button>
 
-        <p-button
-          icon="pi pi-sign-out"
-          (onClick)="logout()"
-          [rounded]="true"
-          severity="danger"
-          pTooltip="Salir"
-          tooltipPosition="bottom"
-        ></p-button>
-      </div>
+          <button
+            pButton
+            type="button"
+            rounded
+            iconOnly
+            variant="outlined"
+            [disabled]="loading"
+            pTooltip="Recargar datos"
+            tooltipPosition="bottom"
+            aria-label="Recargar datos"
+            (click)="cargarGastos()"
+          >
+            <i class="pi pi-refresh" [class.pi-spin]="loading"></i>
+          </button>
+
+          <button
+            pButton
+            type="button"
+            rounded
+            iconOnly
+            severity="warn"
+            [disabled]="gastos.length === 0"
+            pTooltip="Limpiar datos"
+            tooltipPosition="bottom"
+            aria-label="Limpiar datos"
+            (click)="confirmarLimpiar()"
+          >
+            <i class="pi pi-trash"></i>
+          </button>
+
+          }
+
+          <button
+            pButton
+            type="button"
+            rounded
+            iconOnly
+            severity="danger"
+            pTooltip="Salir"
+            tooltipPosition="bottom"
+            aria-label="Salir"
+            (click)="logout()"
+          >
+            <i class="pi pi-sign-out"></i>
+          </button>
+        </div>
+      </ng-template>
     </p-toolbar>
 
-    <p-fileUpload
+    <p-fileupload
       #fileUpload
       mode="basic"
       name="file"
@@ -116,12 +173,68 @@ import {
       [customUpload]="true"
       (uploadHandler)="onFileUpload($event)"
       [style]="{ display: 'none' }"
-    >
-    </p-fileUpload>
+    ></p-fileupload>
 
-    <div class="grid">
+    <p-card *ngIf="accessDenied" class="mb-3">
+      <div class="flex flex-column gap-3">
+        <div class="flex align-items-center gap-2">
+          <i class="pi pi-lock text-2xl text-orange-500"></i>
+          <h3 class="m-0">Tu cuenta no tiene acceso al hogar</h3>
+        </div>
+
+        <p class="m-0 text-600">
+          Iniciaste sesión como <strong>{{ accessEmail }}</strong>. Tu email está
+          autorizado para usar la app, pero todavía no pertenece a este hogar.
+          Si el hogar tiene menos de 2 miembros, la app intenta sumarte
+          automáticamente. Si ves esta pantalla, pedile al administrador que
+          agregue tu email a
+          <code>households/{{ householdId }}/memberEmails</code> o tu UID a
+          <code>members</code>.
+        </p>
+
+        <div class="flex flex-column gap-1">
+          <span class="text-sm text-500">Tu UID</span>
+          <code class="text-sm">{{ accessUid }}</code>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            pButton
+            type="button"
+            variant="outlined"
+            (click)="copiar(accessUid, 'UID')"
+          >
+            <i class="pi pi-copy"></i>
+            Copiar UID
+          </button>
+          <button
+            pButton
+            type="button"
+            variant="outlined"
+            (click)="copiar(accessEmail, 'email')"
+          >
+            <i class="pi pi-envelope"></i>
+            Copiar email
+          </button>
+          <button pButton type="button" severity="danger" (click)="logout()">
+            <i class="pi pi-sign-out"></i>
+            Cerrar sesión
+          </button>
+        </div>
+
+        <small class="text-500">
+          Si el hogar todavía no existe y tu email está en
+          <code>config/access.allowedEmails</code>, la app lo crea
+          automáticamente. Si el hogar ya tiene 2 miembros, el administrador
+          debe liberar un lugar o agregarte manualmente. Si ya te agregaron,
+          verificá que las reglas estén publicadas.
+        </small>
+      </div>
+    </p-card>
+
+    <div class="grid" *ngIf="!accessDenied">
       <div class="col-12 md:col-4">
-        <p-card styleClass="h-full">
+        <p-card class="h-full">
           <div class="flex justify-content-between align-items-center">
             <div>
               <div class="text-500 font-medium mb-2">Total Entradas</div>
@@ -140,7 +253,7 @@ import {
       </div>
 
       <div class="col-12 md:col-4">
-        <p-card styleClass="h-full">
+        <p-card class="h-full">
           <div class="flex justify-content-between align-items-center">
             <div>
               <div class="text-500 font-medium mb-2">Total Salidas</div>
@@ -159,7 +272,7 @@ import {
       </div>
 
       <div class="col-12 md:col-4">
-        <p-card styleClass="h-full">
+        <p-card class="h-full">
           <div class="flex justify-content-between align-items-center">
             <div>
               <div class="text-500 font-medium mb-2">Balance</div>
@@ -193,7 +306,7 @@ import {
             <div class="flex align-items-center gap-3">
               <i class="pi pi-chart-bar text-2xl text-orange-500"></i>
               <div>
-                <div class="text-sm text-500">Espacio Usado</div>
+                <div class="text-sm text-500">Tamaño de datos</div>
                 <div class="text-xl font-bold">{{ storageSize }}</div>
               </div>
             </div>
@@ -203,11 +316,12 @@ import {
 
       <div class="col-12">
         <p-card>
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <div class="px-3 pt-3">
               <h4 class="m-0 text-900">Historial de Movimientos</h4>
             </div>
           </ng-template>
+
           <p-table
             [value]="gastos"
             [paginator]="true"
@@ -216,26 +330,40 @@ import {
             currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords} registros"
             [rowsPerPageOptions]="[5, 10, 25, 50]"
             [loading]="loading"
-            styleClass="p-datatable-sm p-datatable-striped"
+            size="small"
+            [stripedRows]="true"
           >
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th pSortableColumn="fecha">
-                  Fecha <p-sortIcon field="fecha"></p-sortIcon>
+                  <div class="flex align-items-center gap-2">
+                    Fecha
+                    <p-sortIcon field="fecha"></p-sortIcon>
+                  </div>
                 </th>
                 <th>Tipo</th>
                 <th pSortableColumn="categoria">
-                  Categoría <p-sortIcon field="categoria"></p-sortIcon>
+                  <div class="flex align-items-center gap-2">
+                    Categoría
+                    <p-sortIcon field="categoria"></p-sortIcon>
+                  </div>
                 </th>
                 <th pSortableColumn="monto" class="text-right">
-                  Monto <p-sortIcon field="monto"></p-sortIcon>
+                  <div class="flex align-items-center justify-content-end gap-2">
+                    Monto
+                    <p-sortIcon field="monto"></p-sortIcon>
+                  </div>
                 </th>
                 <th pSortableColumn="usuario">
-                  Usuario <p-sortIcon field="usuario"></p-sortIcon>
+                  <div class="flex align-items-center gap-2">
+                    Usuario
+                    <p-sortIcon field="usuario"></p-sortIcon>
+                  </div>
                 </th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-gasto>
+
+            <ng-template #body let-gasto>
               <tr>
                 <td>
                   <div class="flex align-items-center gap-2">
@@ -265,9 +393,7 @@ import {
                   </span>
                 </td>
                 <td>
-                  <span class="text-900 font-medium">{{
-                    gasto.categoria
-                  }}</span>
+                  <span class="text-900 font-medium">{{ gasto.categoria }}</span>
                 </td>
                 <td class="text-right">
                   <span class="font-bold text-900"
@@ -284,7 +410,8 @@ import {
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="5" class="text-center py-6">
                   <i class="pi pi-inbox text-4xl text-400 mb-3"></i>
@@ -298,6 +425,7 @@ import {
     </div>
 
     <p-dialog
+      *ngIf="!accessDenied"
       header="Nuevo Movimiento"
       [(visible)]="displayDialog"
       [modal]="true"
@@ -310,70 +438,82 @@ import {
           <label class="font-semibold">
             <i class="pi pi-calendar mr-2"></i>Fecha
           </label>
-          <p-calendar
+          <p-datepicker
             [(ngModel)]="nuevoGasto.fecha"
             dateFormat="dd/mm/yy"
             [showIcon]="true"
-            styleClass="w-full"
-          ></p-calendar>
+            class="w-full"
+          ></p-datepicker>
         </div>
 
         <div class="flex flex-column gap-2">
           <label class="font-semibold">
             <i class="pi pi-tags mr-2"></i>Tipo de Operación
           </label>
-          <p-dropdown
+          <p-select
             [(ngModel)]="nuevoGasto.tipoOperacion"
             [options]="tiposOperacion"
             optionLabel="label"
             optionValue="value"
             placeholder="Seleccionar"
+            class="w-full"
             (onChange)="onTipoChange()"
-            styleClass="w-full"
-          ></p-dropdown>
+          ></p-select>
         </div>
 
         <div class="flex flex-column gap-2">
           <label class="font-semibold">
             <i class="pi pi-bookmark mr-2"></i>Categoría
           </label>
-          <p-dropdown
+          <p-select
             [(ngModel)]="nuevoGasto.categoria"
             [options]="categoriasDisponibles"
             placeholder="Seleccionar"
-            styleClass="w-full"
-          ></p-dropdown>
+            class="w-full"
+          ></p-select>
         </div>
 
         <div class="flex flex-column gap-2">
           <label class="font-semibold">
             <i class="pi pi-money-bill mr-2"></i>Monto (₲)
           </label>
-          <p-inputNumber
+          <p-inputnumber
             [(ngModel)]="nuevoGasto.monto"
             [min]="0"
             mode="decimal"
             [minFractionDigits]="0"
             [maxFractionDigits]="0"
-            styleClass="w-full"
-          ></p-inputNumber>
+            class="w-full"
+          ></p-inputnumber>
         </div>
       </div>
 
-      <ng-template pTemplate="footer">
-        <p-button
-          label="Cancelar"
-          icon="pi pi-times"
-          (onClick)="displayDialog = false"
-          severity="secondary"
-          [outlined]="true"
-        ></p-button>
-        <p-button
-          label="Guardar"
-          icon="pi pi-check"
-          (onClick)="guardarGasto()"
-          [loading]="saving"
-        ></p-button>
+      <ng-template #footer>
+        <div class="flex justify-content-end gap-2">
+          <button
+            pButton
+            type="button"
+            variant="outlined"
+            severity="secondary"
+            (click)="displayDialog = false"
+          >
+            <i class="pi pi-times"></i>
+            Cancelar
+          </button>
+          <button
+            pButton
+            type="button"
+            [disabled]="saving"
+            (click)="guardarGasto()"
+          >
+            @if (saving) {
+              <i class="pi pi-spin pi-spinner"></i>
+            } @else {
+              <i class="pi pi-check"></i>
+            }
+            Guardar
+          </button>
+        </div>
       </ng-template>
     </p-dialog>
   `,
@@ -397,19 +537,25 @@ import {
   ],
 })
 export class DashboardComponent implements OnInit {
+  @ViewChild('fileUpload') fileUpload?: FileUpload;
+
   displayDialog = false;
   loading = false;
   saving = false;
   currentUser = '';
+  accessDenied = false;
+  accessEmail = '';
+  accessUid = '';
+  readonly householdId = environment.householdId;
   gastos: Gasto[] = [];
   totalEntradas = 0;
   totalSalidas = 0;
   balance = 0;
   storageSize = '';
 
-  nuevoGasto = {
+  nuevoGasto: NuevoGasto = {
     fecha: new Date(),
-    tipoOperacion: 'salida' as 'entrada' | 'salida',
+    tipoOperacion: 'salida',
     categoria: '',
     monto: 0,
     usuario: '',
@@ -425,13 +571,40 @@ export class DashboardComponent implements OnInit {
   constructor(
     private authService: AuthService,
     private storageService: StorageService,
+    private householdService: HouseholdService,
     private messageService: MessageService,
     private confirmationService: ConfirmationService
   ) {}
 
   async ngOnInit(): Promise<void> {
     this.currentUser = this.authService.getCurrentUser();
-    await this.cargarGastos();
+
+    const identity = this.householdService.getCurrentIdentity();
+    this.accessEmail = identity.email;
+    this.accessUid = identity.uid;
+
+    try {
+      await this.householdService.ensureHousehold();
+      await this.cargarGastos();
+    } catch (error) {
+      if (error instanceof HouseholdAccessError) {
+        this.accessDenied = true;
+        this.accessEmail = error.email || this.accessEmail;
+        this.accessUid = error.uid || this.accessUid;
+        return;
+      }
+
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: this.errorDetail(error, 'No se pudo inicializar el hogar.'),
+        life: 6000,
+      });
+    }
+  }
+
+  elegirArchivo(): void {
+    this.fileUpload?.choose();
   }
 
   async cargarGastos(): Promise<void> {
@@ -443,13 +616,15 @@ export class DashboardComponent implements OnInit {
       this.storageSize = this.storageService.getStorageSizeFormatted(
         this.gastos
       );
-      console.log('✅ Gastos cargados:', this.gastos.length);
     } catch (error) {
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'Error al cargar datos del servidor',
-        life: 3000,
+        detail: this.errorDetail(
+          error,
+          'No se pudieron cargar los datos desde Firestore.'
+        ),
+        life: 5000,
       });
     } finally {
       this.loading = false;
@@ -489,11 +664,11 @@ export class DashboardComponent implements OnInit {
   }
 
   async guardarGasto(): Promise<void> {
-    if (!this.nuevoGasto.categoria || !this.nuevoGasto.monto) {
+    if (!this.nuevoGasto.categoria || this.nuevoGasto.monto <= 0) {
       this.messageService.add({
         severity: 'warn',
         summary: 'Advertencia',
-        detail: 'Complete todos los campos',
+        detail: 'Seleccioná una categoría e ingresá un monto mayor a cero.',
         life: 3000,
       });
       return;
@@ -514,8 +689,8 @@ export class DashboardComponent implements OnInit {
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'Error al guardar el movimiento',
-        life: 3000,
+        detail: this.errorDetail(error, 'No se pudo guardar el movimiento.'),
+        life: 5000,
       });
     } finally {
       this.saving = false;
@@ -562,11 +737,32 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  async onFileUpload(event: any): Promise<void> {
-    const file = event.files[0];
+  async onFileUpload(event: { files?: File[] }): Promise<void> {
+    const file = event.files?.[0];
+
+    if (!file) {
+      this.messageService.add({
+        severity: 'warn',
+        summary: 'Advertencia',
+        detail: 'No se seleccionó ningún archivo.',
+        life: 3000,
+      });
+      return;
+    }
 
     try {
       const gastosImportados = await this.storageService.parseJSONFile(file);
+
+      if (gastosImportados.length === 0) {
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Advertencia',
+          detail: 'El archivo no contiene gastos válidos para importar.',
+          life: 4000,
+        });
+        return;
+      }
+
       const count = await this.storageService.importFromJSON(gastosImportados);
       await this.cargarGastos();
       this.messageService.add({
@@ -579,8 +775,8 @@ export class DashboardComponent implements OnInit {
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'Error al importar archivo JSON',
-        life: 3000,
+        detail: this.errorDetail(error, 'No se pudo importar el archivo JSON.'),
+        life: 5000,
       });
     }
   }
@@ -603,7 +799,8 @@ export class DashboardComponent implements OnInit {
       icon: 'pi pi-exclamation-triangle',
       acceptLabel: 'Sí, eliminar todo',
       rejectLabel: 'Cancelar',
-      acceptButtonStyleClass: 'p-button-danger',
+      acceptButtonProps: { severity: 'danger' },
+      rejectButtonProps: { severity: 'secondary', variant: 'outlined' },
       accept: async () => {
         await this.limpiarDatos();
       },
@@ -624,13 +821,54 @@ export class DashboardComponent implements OnInit {
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'Error al eliminar datos',
+        detail: this.errorDetail(error, 'No se pudieron eliminar los datos.'),
+        life: 5000,
+      });
+    }
+  }
+
+  async copiar(texto: string, etiqueta: string): Promise<void> {
+    if (!texto) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(texto);
+      this.messageService.add({
+        severity: 'success',
+        summary: 'Copiado',
+        detail: `${etiqueta} copiado al portapapeles`,
+        life: 2000,
+      });
+    } catch {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo copiar al portapapeles.',
         life: 3000,
       });
     }
   }
 
-  logout(): void {
-    this.authService.logout();
+  async logout(): Promise<void> {
+    await this.authService.logout();
+  }
+
+  private errorDetail(error: unknown, fallback: string): string {
+    const code = (error as { code?: string } | null)?.code ?? '';
+
+    if (code === 'permission-denied') {
+      return 'Sin permiso para acceder al hogar. Verificá que firestore.rules esté publicado y que tu email o UID esté autorizado en households/casa.';
+    }
+
+    if (code === 'unavailable') {
+      return 'Sin conexión con Firestore. Los cambios se sincronizarán cuando vuelvas a estar online.';
+    }
+
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return fallback;
   }
 }

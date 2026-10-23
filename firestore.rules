@@ -1,0 +1,116 @@
+rules_version = '2';
+
+// Modelo de la app:
+// - Lista global de acceso en config/access.allowedEmails.
+// - Hogar compartido en households/{householdId}/gastos.
+// No usar un modelo usuarios/{uid}/... con esta versión de la app.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Google entrega un email verificado. Exigirlo evita membresías por emails no verificados.
+    function hasVerifiedEmail() {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+
+    function accessConfig() {
+      return get(/databases/$(database)/documents/config/access).data;
+    }
+
+    // Lista global: solo estos emails pueden usar la app y tocar datos.
+    function isAllowedEmail() {
+      return hasVerifiedEmail()
+        && request.auth.token.email in accessConfig().allowedEmails;
+    }
+
+    function householdPath(householdId) {
+      return /databases/$(database)/documents/households/$(householdId);
+    }
+
+    function householdExists(householdId) {
+      return exists(householdPath(householdId));
+    }
+
+    function householdData(householdId) {
+      return get(householdPath(householdId)).data;
+    }
+
+    function isHouseholdMember(householdId) {
+      return isAllowedEmail()
+        && householdExists(householdId)
+        && (
+          request.auth.uid in householdData(householdId).members
+          || request.auth.token.email in householdData(householdId).memberEmails
+        );
+    }
+
+    function isValidGasto(data) {
+      return data.monto is number
+        && data.monto >= 0
+        && data.categoria is string
+        && data.categoria.size() > 0
+        && data.categoria.size() <= 100
+        && data.tipoOperacion is string
+        && data.tipoOperacion in ['entrada', 'salida']
+        && data.fecha is timestamp
+        && data.fechaRegistro is timestamp
+        && data.usuario is string
+        && data.usuario.size() <= 100;
+    }
+
+    // La lista de acceso se administra desde Firebase Console.
+    // El cliente puede leerla para saber si el email está autorizado.
+    match /config/access {
+      allow read: if hasVerifiedEmail();
+      allow write: if false;
+    }
+
+    match /households/{householdId} {
+      // Permite comprobar si el hogar existe (primer login) o leerlo si ya sos miembro.
+      allow read: if hasVerifiedEmail()
+        && (!householdExists(householdId) || isHouseholdMember(householdId));
+
+      // Un email autorizado puede crear el hogar si todavía no existe.
+      allow create: if isAllowedEmail()
+        && !householdExists(householdId)
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.members.size() == 1
+        && request.resource.data.members[0] == request.auth.uid
+        && request.resource.data.memberEmails.size() == 1
+        && request.resource.data.memberEmails[0] == request.auth.token.email
+        && request.resource.data.name is string
+        && request.resource.data.createdAt is timestamp;
+
+      // Un email autorizado puede sumarse a sí mismo si el hogar tiene espacio.
+      // No puede quitar miembros ni cambiar otros campos.
+      allow update: if isAllowedEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberEmails'])
+        && request.auth.uid in request.resource.data.members
+        && request.auth.token.email in request.resource.data.memberEmails
+        && request.resource.data.members.size() == resource.data.get('members', []).size() + 1
+        && request.resource.data.members.hasAll(resource.data.get('members', []))
+        && request.resource.data.memberEmails.size() == resource.data.get('memberEmails', []).size() + 1
+        && request.resource.data.memberEmails.hasAll(resource.data.get('memberEmails', []))
+        && request.resource.data.members.size() <= 2
+        && request.resource.data.memberEmails.size() <= 2;
+
+      allow delete: if false;
+
+      match /gastos/{gastoId} {
+        allow read, delete: if isHouseholdMember(householdId);
+        allow create, update: if isHouseholdMember(householdId)
+          && isValidGasto(request.resource.data);
+      }
+    }
+
+    // Todo lo que no esté explícitamente permitido queda bloqueado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
