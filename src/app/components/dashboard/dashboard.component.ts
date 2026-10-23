@@ -8,6 +8,7 @@ import { DialogModule } from '@openng/optimus-ui/dialog';
 import { DatePickerModule } from '@openng/optimus-ui/datepicker';
 import { SelectModule } from '@openng/optimus-ui/select';
 import { InputNumberModule } from '@openng/optimus-ui/inputnumber';
+import type { InputNumber } from '@openng/optimus-ui/inputnumber';
 import { TableModule } from '@openng/optimus-ui/table';
 import { ToastModule } from '@openng/optimus-ui/toast';
 import { ConfirmDialogModule } from '@openng/optimus-ui/confirmdialog';
@@ -60,91 +61,90 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
       <ng-template #end>
         <div class="flex flex-wrap gap-2">
           @if (!accessDenied) {
-          <button
-            pButton
-            type="button"
-            rounded
-            iconOnly
-            severity="success"
-            pTooltip="Agregar gasto"
-            tooltipPosition="bottom"
-            aria-label="Agregar gasto"
-            (click)="showDialog()"
-          >
-            <i class="pi pi-plus"></i>
-          </button>
+            <button
+              pButton
+              type="button"
+              rounded
+              iconOnly
+              severity="success"
+              pTooltip="Agregar gasto"
+              tooltipPosition="bottom"
+              aria-label="Agregar gasto"
+              (click)="showDialog()"
+            >
+              <i class="pi pi-plus"></i>
+            </button>
 
-          <button
-            pButton
-            type="button"
-            rounded
-            iconOnly
-            severity="info"
-            pTooltip="Importar JSON (backup o migración)"
-            tooltipPosition="bottom"
-            aria-label="Importar JSON"
-            (click)="elegirArchivo()"
-          >
-            <i class="pi pi-upload"></i>
-          </button>
+            <button
+              pButton
+              type="button"
+              rounded
+              iconOnly
+              severity="info"
+              pTooltip="Importar JSON (backup o migración)"
+              tooltipPosition="bottom"
+              aria-label="Importar JSON"
+              (click)="elegirArchivo()"
+            >
+              <i class="pi pi-upload"></i>
+            </button>
 
-          <button
-            pButton
-            type="button"
-            rounded
-            iconOnly
-            severity="help"
-            pTooltip="Descargar JSON"
-            tooltipPosition="bottom"
-            aria-label="Descargar JSON"
-            (click)="descargarJSON()"
-          >
-            <i class="pi pi-file"></i>
-          </button>
+            <button
+              pButton
+              type="button"
+              rounded
+              iconOnly
+              severity="help"
+              pTooltip="Descargar JSON"
+              tooltipPosition="bottom"
+              aria-label="Descargar JSON"
+              (click)="descargarJSON()"
+            >
+              <i class="pi pi-file"></i>
+            </button>
 
-          <button
-            pButton
-            type="button"
-            rounded
-            severity="secondary"
-            pTooltip="Descargar CSV"
-            tooltipPosition="bottom"
-            (click)="descargarCSV()"
-          >
-            <i class="pi pi-download"></i>
-            .CSV
-          </button>
+            <button
+              pButton
+              type="button"
+              rounded
+              severity="secondary"
+              pTooltip="Descargar CSV"
+              tooltipPosition="bottom"
+              (click)="descargarCSV()"
+            >
+              <i class="pi pi-download"></i>
+              .CSV
+            </button>
 
-          <button
-            pButton
-            type="button"
-            rounded
-            iconOnly
-            variant="outlined"
-            [disabled]="loading"
-            pTooltip="Recargar datos"
-            tooltipPosition="bottom"
-            aria-label="Recargar datos"
-            (click)="cargarGastos()"
-          >
-            <i class="pi pi-refresh" [class.pi-spin]="loading"></i>
-          </button>
+            <button
+              pButton
+              type="button"
+              rounded
+              iconOnly
+              variant="outlined"
+              [disabled]="loading"
+              pTooltip="Recargar datos"
+              tooltipPosition="bottom"
+              aria-label="Recargar datos"
+              (click)="cargarGastos()"
+            >
+              <i class="pi pi-refresh" [class.pi-spin]="loading"></i>
+            </button>
 
-          <button
-            pButton
-            type="button"
-            rounded
-            iconOnly
-            severity="warn"
-            [disabled]="gastos.length === 0"
-            pTooltip="Limpiar datos"
-            tooltipPosition="bottom"
-            aria-label="Limpiar datos"
-            (click)="confirmarLimpiar()"
-          >
-            <i class="pi pi-trash"></i>
-          </button>
-
+            <button
+              pButton
+              type="button"
+              rounded
+              iconOnly
+              severity="warn"
+              [disabled]="gastos.length === 0"
+              pTooltip="Limpiar datos"
+              tooltipPosition="bottom"
+              aria-label="Limpiar datos"
+              (click)="confirmarLimpiar()"
+            >
+              <i class="pi pi-trash"></i>
+            </button>
           }
 
           <button
@@ -183,11 +183,11 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
         </div>
 
         <p class="m-0 text-600">
-          Iniciaste sesión como <strong>{{ accessEmail }}</strong>. Tu email está
-          autorizado para usar la app, pero todavía no pertenece a este hogar.
-          Si el hogar tiene menos de 2 miembros, la app intenta sumarte
-          automáticamente. Si ves esta pantalla, pedile al administrador que
-          agregue tu email a
+          Iniciaste sesión como <strong>{{ accessEmail }}</strong
+          >. Tu email está autorizado para usar la app, pero todavía no
+          pertenece a este hogar. Si el hogar tiene menos de 2 miembros, la app
+          intenta sumarte automáticamente. Si ves esta pantalla, pedile al
+          administrador que agregue tu email a
           <code>households/{{ householdId }}/memberEmails</code> o tu UID a
           <code>members</code>.
         </p>
@@ -239,7 +239,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
             <div>
               <div class="text-500 font-medium mb-2">Total Entradas</div>
               <div class="text-2xl font-bold text-green-500">
-                ₲ {{ totalEntradas | number : '1.0-0' }}
+                ₲ {{ totalEntradas | number: '1.0-0' }}
               </div>
             </div>
             <div
@@ -258,7 +258,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
             <div>
               <div class="text-500 font-medium mb-2">Total Salidas</div>
               <div class="text-2xl font-bold text-red-500">
-                ₲ {{ totalSalidas | number : '1.0-0' }}
+                ₲ {{ totalSalidas | number: '1.0-0' }}
               </div>
             </div>
             <div
@@ -280,7 +280,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
                 class="text-2xl font-bold"
                 [ngClass]="balance >= 0 ? 'text-green-500' : 'text-red-500'"
               >
-                ₲ {{ balance | number : '1.0-0' }}
+                ₲ {{ balance | number: '1.0-0' }}
               </div>
             </div>
             <div
@@ -349,7 +349,9 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
                   </div>
                 </th>
                 <th pSortableColumn="monto" class="text-right">
-                  <div class="flex align-items-center justify-content-end gap-2">
+                  <div
+                    class="flex align-items-center justify-content-end gap-2"
+                  >
                     Monto
                     <p-sortIcon field="monto"></p-sortIcon>
                   </div>
@@ -368,7 +370,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
                 <td>
                   <div class="flex align-items-center gap-2">
                     <i class="pi pi-calendar text-500"></i>
-                    <span>{{ gasto.fecha | date : 'dd/MM/yyyy' }}</span>
+                    <span>{{ gasto.fecha | date: 'dd/MM/yyyy' }}</span>
                   </div>
                 </td>
                 <td>
@@ -393,11 +395,13 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
                   </span>
                 </td>
                 <td>
-                  <span class="text-900 font-medium">{{ gasto.categoria }}</span>
+                  <span class="text-900 font-medium">{{
+                    gasto.categoria
+                  }}</span>
                 </td>
                 <td class="text-right">
                   <span class="font-bold text-900"
-                    >₲ {{ gasto.monto | number : '1.0-0' }}</span
+                    >₲ {{ gasto.monto | number: '1.0-0' }}</span
                   >
                 </td>
                 <td>
@@ -432,18 +436,23 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
       [style]="{ width: '90vw', 'max-width': '500px' }"
       [draggable]="false"
       [resizable]="false"
+      [focusOnShow]="false"
+      (onShow)="focusMonto()"
     >
       <div class="flex flex-column gap-4 pt-3">
         <div class="flex flex-column gap-2">
           <label class="font-semibold">
-            <i class="pi pi-calendar mr-2"></i>Fecha
+            <i class="pi pi-money-bill mr-2"></i>Monto (₲)
           </label>
-          <p-datepicker
-            [(ngModel)]="nuevoGasto.fecha"
-            dateFormat="dd/mm/yy"
-            [showIcon]="true"
+          <p-inputnumber
+            #montoInput
+            [(ngModel)]="nuevoGasto.monto"
+            [min]="0"
+            mode="decimal"
+            [minFractionDigits]="0"
+            [maxFractionDigits]="0"
             class="w-full"
-          ></p-datepicker>
+          ></p-inputnumber>
         </div>
 
         <div class="flex flex-column gap-2">
@@ -458,6 +467,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
             placeholder="Seleccionar"
             class="w-full"
             (onChange)="onTipoChange()"
+            appendTo="body"
           ></p-select>
         </div>
 
@@ -470,21 +480,22 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
             [options]="categoriasDisponibles"
             placeholder="Seleccionar"
             class="w-full"
+            appendTo="body"
           ></p-select>
         </div>
 
         <div class="flex flex-column gap-2">
           <label class="font-semibold">
-            <i class="pi pi-money-bill mr-2"></i>Monto (₲)
+            <i class="pi pi-calendar mr-2"></i>Fecha
           </label>
-          <p-inputnumber
-            [(ngModel)]="nuevoGasto.monto"
-            [min]="0"
-            mode="decimal"
-            [minFractionDigits]="0"
-            [maxFractionDigits]="0"
+          <p-datepicker
+            [(ngModel)]="nuevoGasto.fecha"
+            dateFormat="dd/mm/yy"
+            [showIcon]="true"
+            [autofocus]="false"
             class="w-full"
-          ></p-inputnumber>
+            appendTo="body"
+          ></p-datepicker>
         </div>
       </div>
 
@@ -538,6 +549,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
 })
 export class DashboardComponent implements OnInit {
   @ViewChild('fileUpload') fileUpload?: FileUpload;
+  @ViewChild('montoInput') montoInput?: InputNumber;
 
   displayDialog = false;
   loading = false;
@@ -573,7 +585,7 @@ export class DashboardComponent implements OnInit {
     private storageService: StorageService,
     private householdService: HouseholdService,
     private messageService: MessageService,
-    private confirmationService: ConfirmationService
+    private confirmationService: ConfirmationService,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -607,6 +619,19 @@ export class DashboardComponent implements OnInit {
     this.fileUpload?.choose();
   }
 
+  focusMonto(): void {
+    setTimeout(() => {
+      const input = this.montoInput?.input?.nativeElement;
+
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      input.select();
+    }, 100);
+  }
+
   async cargarGastos(): Promise<void> {
     this.loading = true;
     try {
@@ -614,7 +639,7 @@ export class DashboardComponent implements OnInit {
       this.gastos.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
       this.calcularTotales();
       this.storageSize = this.storageService.getStorageSizeFormatted(
-        this.gastos
+        this.gastos,
       );
     } catch (error) {
       this.messageService.add({
@@ -622,7 +647,7 @@ export class DashboardComponent implements OnInit {
         summary: 'Error',
         detail: this.errorDetail(
           error,
-          'No se pudieron cargar los datos desde Firestore.'
+          'No se pudieron cargar los datos desde Firestore.',
         ),
         life: 5000,
       });

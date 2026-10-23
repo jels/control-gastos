@@ -1,0 +1,7 @@
+{
+  // Usar el TypeScript del proyecto (6.0.3), no el que trae el IDE.
+  // Después de abrir el proyecto: Ctrl+Shift+P → "TypeScript: Select TypeScript Version"
+  // → "Use Workspace Version".
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}

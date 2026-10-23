@@ -8,7 +8,7 @@
   status = 200
 
 # Permite que los flujos de OAuth con ventana emergente conserven el opener.
-# El login actual usa redirect, pero este header evita problemas de COOP en el futuro.
+# El login usa popup con fallback a redirect; este header evita problemas de COOP.
 [[headers]]
   for = "/*"
   [headers.values]

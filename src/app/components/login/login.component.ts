@@ -1,5 +1,4 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { CardModule } from '@openng/optimus-ui/card';
 import { ButtonModule } from '@openng/optimus-ui/button';
@@ -11,17 +10,19 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, CardModule, ButtonModule, MessageModule],
+  imports: [CardModule, ButtonModule, MessageModule],
   template: `
     <div
       class="flex align-items-center justify-content-center min-h-screen bg-gray-100"
     >
       <p-card header="Control de Gastos" class="w-full max-w-25rem">
         <div class="flex flex-column gap-3">
-          <p-message *ngIf="!firebaseConfigured" severity="warn">
-            Firebase no está configurado. Completá
-            src/environments/firebase.config.ts con los datos de tu proyecto.
-          </p-message>
+          @if (!firebaseConfigured) {
+            <p-message severity="warn">
+              Firebase no está configurado. Completá
+              src/environments/firebase.config.ts con los datos de tu proyecto.
+            </p-message>
+          }
 
           <p class="m-0 text-600 text-center">
             Ingresá con tu cuenta de Google para acceder al historial del
@@ -67,9 +68,11 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
             }
           </button>
 
-          <p-message *ngIf="errorMessage" severity="error">
-            {{ errorMessage }}
-          </p-message>
+          @if (errorMessage) {
+            <p-message severity="error">
+              {{ errorMessage }}
+            </p-message>
+          }
 
           <small class="text-500 text-center">
             Solo pueden entrar las cuentas autorizadas en
