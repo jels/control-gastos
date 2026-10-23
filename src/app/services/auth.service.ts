@@ -2,16 +2,23 @@ import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
   getRedirectResult,
   isSignInWithEmailLink,
+  sendPasswordResetEmail,
   sendSignInLinkToEmail,
+  signInWithEmailAndPassword,
   signInWithEmailLink,
   signInWithPopup,
   signInWithRedirect,
   signOut,
+  updateProfile,
 } from 'firebase/auth';
+import type { User } from 'firebase/auth';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import type { Firestore } from 'firebase/firestore';
 import { isFirebaseConfigured } from '../../environments/firebase.config';
-import { FIREBASE_AUTH } from '../firebase.providers';
+import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
 import { AccessService } from './access.service';
 
 @Injectable({
@@ -19,6 +26,7 @@ import { AccessService } from './access.service';
 })
 export class AuthService {
   private readonly auth = inject(FIREBASE_AUTH);
+  private readonly firestore: Firestore = inject(FIRESTORE);
   private readonly router = inject(Router);
   private readonly accessService = inject(AccessService);
   private readonly googleProvider = new GoogleAuthProvider();
@@ -48,7 +56,9 @@ export class AuthService {
     }
 
     try {
-      await signInWithPopup(this.auth, this.googleProvider);
+      const credential = await signInWithPopup(this.auth, this.googleProvider);
+      await this.enforceAllowlist();
+      await this.saveUserProfile(credential.user, 'google.com');
     } catch (error) {
       const code = (error as { code?: string } | null)?.code;
 
@@ -62,8 +72,6 @@ export class AuthService {
 
       throw error;
     }
-
-    await this.enforceAllowlist();
   }
 
   /** Fuerza el flujo de redirección (útil si el popup no se abre). */
@@ -73,6 +81,66 @@ export class AuthService {
     }
 
     await signInWithRedirect(this.auth, this.googleProvider);
+  }
+
+  /** Inicia sesión con el correo y la contraseña de Firebase Auth. */
+  async loginWithEmailPassword(
+    email: string,
+    password: string
+  ): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    const normalized = this.normalizeEmail(email);
+    const credential = await signInWithEmailAndPassword(
+      this.auth,
+      normalized,
+      password
+    );
+
+    await this.enforceAllowlist();
+    await this.saveUserProfile(credential.user, 'password');
+  }
+
+  /**
+   * Crea la cuenta y asigna la contraseña en el primer login.
+   * Si el correo ya existe, Firebase devuelve auth/email-already-in-use.
+   */
+  async registerWithEmailPassword(
+    email: string,
+    password: string
+  ): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    const normalized = this.normalizeEmail(email);
+    const credential = await createUserWithEmailAndPassword(
+      this.auth,
+      normalized,
+      password
+    );
+
+    try {
+      await updateProfile(credential.user, {
+        displayName: normalized.split('@')[0],
+      });
+    } catch {
+      // El perfil no bloquea el registro.
+    }
+
+    await this.enforceAllowlist();
+    await this.saveUserProfile(credential.user, 'password');
+  }
+
+  /** Envía el correo para restablecer la contraseña. */
+  async sendPasswordReset(email: string): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    await sendPasswordResetEmail(this.auth, this.normalizeEmail(email));
   }
 
   /**
@@ -160,6 +228,7 @@ export class AuthService {
 
       try {
         await this.accessService.assertAllowed();
+        await this.saveUserProfile(result.user, 'google.com');
       } catch (error) {
         await this.signOutSilently();
         this.setAuthError(
@@ -224,6 +293,33 @@ export class AuthService {
       await this.signOutSilently();
       throw error;
     }
+  }
+
+  private async saveUserProfile(
+    user: User,
+    provider: 'password' | 'google.com'
+  ): Promise<void> {
+    try {
+      await setDoc(
+        doc(this.firestore, 'usuarios', user.uid),
+        {
+          email: user.email ?? '',
+          displayName: user.displayName ?? '',
+          provider,
+          lastLogin: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      console.warn(
+        'No se pudo guardar el perfil del usuario en Firestore.',
+        error
+      );
+    }
+  }
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
   }
 
   private shouldUseRedirect(): boolean {

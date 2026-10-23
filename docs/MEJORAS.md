@@ -17,7 +17,8 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 |---|---|
 | Contraseñas en texto plano dentro del bundle | Resuelto con Firebase Authentication. |
 | Login con usuario/contraseña | Reemplazado por Google Sign-In. |
-| Popup de Google bloqueado en móvil | Redirect automático en celular/PWA y enlace mágico por email como alternativa. |
+| Popup de Google bloqueado en móvil | Redirect automático en celular/PWA y login alternativo con correo y contraseña. |
+| Usuarios sin tabla visible | Perfil en `usuarios/{uid}` (email, nombre, proveedor, último acceso); la contraseña queda en Firebase Auth, hasheada. |
 | Acceso de cualquier cuenta de Google | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |
 | Configuración manual inicial del hogar | La primera cuenta crea `households/casa`; la segunda se agrega por email/UID. |
 | Dependencia de un backend externo en Render | Reemplazado por Firestore. |

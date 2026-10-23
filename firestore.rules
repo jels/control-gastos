@@ -70,6 +70,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Perfil del usuario. La contraseña NUNCA se guarda en Firestore:
+    // Firebase Authentication la almacena hasheada y no es legible.
+    match /usuarios/{uid} {
+      allow read, write: if isAllowedEmail()
+        && request.auth.uid == uid;
+    }
+
     match /households/{householdId} {
       // Permite comprobar si el hogar existe (primer login) o leerlo si ya sos miembro.
       allow read: if hasVerifiedEmail()

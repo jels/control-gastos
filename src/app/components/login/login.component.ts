@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { CardModule } from '@openng/optimus-ui/card';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { InputTextModule } from '@openng/optimus-ui/inputtext';
+import { PasswordModule } from '@openng/optimus-ui/password';
 import { MessageModule } from '@openng/optimus-ui/message';
 import { AuthService } from '../../services/auth.service';
 import { AccessService } from '../../services/access.service';
@@ -12,7 +13,14 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule, CardModule, ButtonModule, InputTextModule, MessageModule],
+  imports: [
+    FormsModule,
+    CardModule,
+    ButtonModule,
+    InputTextModule,
+    PasswordModule,
+    MessageModule,
+  ],
   template: `
     <div
       class="flex align-items-center justify-content-center min-h-screen bg-gray-100"
@@ -94,7 +102,7 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
           </div>
 
           <div class="flex flex-column gap-2">
-            <label for="email">Entrar con tu correo</label>
+            <label for="email">Correo</label>
             <input
               pInputText
               id="email"
@@ -103,30 +111,63 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
               [(ngModel)]="email"
               placeholder="tu@gmail.com"
               autocomplete="email"
-              [disabled]="sendingLink || loading"
-              (keyup.enter)="sendEmailLink()"
+              [disabled]="emailLoading || loading"
+              (keyup.enter)="loginWithEmail()"
             />
+
+            <label class="font-semibold">Contraseña</label>
+            <p-password
+              [(ngModel)]="password"
+              [feedback]="false"
+              [toggleMask]="true"
+              [fluid]="true"
+              [disabled]="emailLoading || loading"
+              (keyup.enter)="loginWithEmail()"
+            ></p-password>
+
+            <button
+              pButton
+              type="button"
+              class="w-full"
+              [disabled]="emailLoading || loading"
+              (click)="loginWithEmail()"
+            >
+              @if (emailLoading) {
+                <i class="pi pi-spin pi-spinner"></i>
+                Procesando...
+              } @else {
+                <i class="pi pi-sign-in"></i>
+                Ingresar
+              }
+            </button>
+
             <button
               pButton
               type="button"
               variant="outlined"
               class="w-full"
-              [disabled]="sendingLink || loading"
-              (click)="sendEmailLink()"
+              [disabled]="emailLoading || loading"
+              (click)="registerWithEmail()"
             >
-              @if (sendingLink) {
-                <i class="pi pi-spin pi-spinner"></i>
-                Enviando...
-              } @else {
-                <i class="pi pi-envelope"></i>
-                Enviar enlace de acceso
-              }
+              <i class="pi pi-key"></i>
+              Primera vez: asignar contraseña
             </button>
 
-            @if (linkSent) {
+            <button
+              pButton
+              type="button"
+              variant="text"
+              class="w-full"
+              [disabled]="emailLoading || loading"
+              (click)="resetPassword()"
+            >
+              Olvidé mi contraseña
+            </button>
+
+            @if (resetSent) {
               <p-message severity="success">
-                Te enviamos un enlace a {{ email }}. Revisá tu correo y abrí el
-                enlace.
+                Si el correo tiene una cuenta con contraseña, recibirás un
+                enlace para restablecerla.
               </p-message>
             }
           </div>
@@ -138,8 +179,8 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
           }
 
           <small class="text-500 text-center">
-            En el celular se abre el selector de Google en la misma pestaña.
-            Solo pueden entrar las cuentas autorizadas en
+            En el celular Google usa redirección. También podés entrar con
+            correo y contraseña. Solo pueden entrar las cuentas autorizadas en
             <code>config/access</code>.
           </small>
         </div>
@@ -149,10 +190,11 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
 })
 export class LoginComponent implements OnInit {
   loading = false;
-  sendingLink = false;
-  linkSent = false;
+  emailLoading = false;
+  resetSent = false;
   errorMessage = '';
   email = '';
+  password = '';
   readonly firebaseConfigured = isFirebaseConfigured();
 
   constructor(
@@ -209,27 +251,91 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  async sendEmailLink(): Promise<void> {
+  async loginWithEmail(): Promise<void> {
     this.errorMessage = '';
-    this.linkSent = false;
+    this.resetSent = false;
 
+    if (!this.validateEmail()) {
+      return;
+    }
+
+    if (!this.password) {
+      this.errorMessage = 'Ingresá tu contraseña.';
+      return;
+    }
+
+    this.emailLoading = true;
+
+    try {
+      await this.authService.loginWithEmailPassword(
+        this.email,
+        this.password
+      );
+      await this.router.navigate(['/dashboard']);
+    } catch (error) {
+      this.errorMessage = this.mapAuthError(error);
+    } finally {
+      this.emailLoading = false;
+    }
+  }
+
+  async registerWithEmail(): Promise<void> {
+    this.errorMessage = '';
+    this.resetSent = false;
+
+    if (!this.validateEmail()) {
+      return;
+    }
+
+    if (this.password.length < 6) {
+      this.errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
+      return;
+    }
+
+    this.emailLoading = true;
+
+    try {
+      await this.authService.registerWithEmailPassword(
+        this.email,
+        this.password
+      );
+      await this.router.navigate(['/dashboard']);
+    } catch (error) {
+      this.errorMessage = this.mapAuthError(error);
+    } finally {
+      this.emailLoading = false;
+    }
+  }
+
+  async resetPassword(): Promise<void> {
+    this.errorMessage = '';
+    this.resetSent = false;
+
+    if (!this.validateEmail()) {
+      return;
+    }
+
+    this.emailLoading = true;
+
+    try {
+      await this.authService.sendPasswordReset(this.email);
+      this.resetSent = true;
+    } catch (error) {
+      this.errorMessage = this.mapAuthError(error);
+    } finally {
+      this.emailLoading = false;
+    }
+  }
+
+  private validateEmail(): boolean {
     const email = this.email.trim();
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       this.errorMessage = 'Ingresá un correo electrónico válido.';
-      return;
+      return false;
     }
 
-    this.sendingLink = true;
-
-    try {
-      await this.authService.sendEmailLink(email);
-      this.linkSent = true;
-    } catch (error) {
-      this.errorMessage = this.mapAuthError(error);
-    } finally {
-      this.sendingLink = false;
-    }
+    return true;
   }
 
   private mapAuthError(error: unknown): string {
@@ -255,12 +361,25 @@ export class LoginComponent implements OnInit {
       ACCESS_CHECK_FAILED:
         'No se pudo verificar la lista de acceso. Revisá que firestore.rules esté publicado y tu conexión.',
       NOT_AUTHENTICATED: 'No hay una sesión activa. Intentá de nuevo.',
+      'auth/invalid-credential':
+        'Correo o contraseña incorrectos. Si es tu primera vez, usá “Primera vez: asignar contraseña”.',
+      'auth/wrong-password':
+        'Correo o contraseña incorrectos. Si es tu primera vez, usá “Primera vez: asignar contraseña”.',
+      'auth/user-not-found':
+        'No existe una cuenta con ese correo. Usá “Primera vez: asignar contraseña”.',
+      'auth/email-already-in-use':
+        'Ese correo ya tiene una cuenta. Si es una cuenta de Google, eliminala en Firebase Console → Authentication → Users y volvé a asignar la contraseña; si ya tiene contraseña, usá “Ingresar”.',
+      'auth/weak-password':
+        'La contraseña debe tener al menos 6 caracteres.',
+      'auth/user-disabled': 'Esta cuenta está deshabilitada.',
+      'auth/requires-recent-login':
+        'Volvé a iniciar sesión para completar esta acción.',
+      'auth/operation-not-allowed':
+        'Habilitá Email/Password (y Google si lo usás) en Firebase Authentication.',
       'auth/popup-closed-by-user': 'Inicio de sesión cancelado.',
       'auth/cancelled-popup-request': 'Inicio de sesión cancelado.',
       'auth/popup-blocked':
-        'El navegador bloqueó la ventana de Google. Probá con el enlace por email.',
-      'auth/operation-not-allowed':
-        'Habilitá el proveedor correspondiente en Firebase Authentication (Google o Email/Password + Email link).',
+        'El navegador bloqueó la ventana de Google. Probá con correo y contraseña.',
       'auth/unauthorized-domain':
         'Este dominio no está autorizado en Firebase Authentication. Agregalo en Authentication → Settings → Authorized domains.',
       'auth/account-exists-with-different-credential':
