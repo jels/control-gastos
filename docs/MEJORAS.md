@@ -20,7 +20,7 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 | Cuentas con contraseña sin correo verificado | Se exige verificación por email antes de acceder a Firestore. |
 | Usuarios sin tabla visible | Perfil en `usuarios/{uid}` (email, nombre, proveedor, último acceso); la contraseña queda en Firebase Auth, hasheada. |
 | Cuentas creadas solo con Google | Se eliminan y recrean con contraseña; la app guía el proceso. |
-| Acceso de cualquier cuenta de Google | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |
+| Acceso de cualquier cuenta | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |
 | Configuración manual inicial del hogar | La primera cuenta crea `households/casa`; la segunda se agrega por email/UID. |
 | Dependencia de un backend externo en Render | Reemplazado por Firestore. |
 | Todos los datos eran globales | Ahora se aíslan por `households/{id}` y reglas de miembros. |

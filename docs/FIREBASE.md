@@ -509,7 +509,7 @@ Verificá los límites actuales en <https://firebase.google.com/pricing>.
 ## 18. Seguridad: lo importante
 
 - La configuración web de Firebase es pública. No la trates como un secreto.
-- La seguridad real está en `firestore.rules`: primero se exige que el email esté en `config/access.allowedEmails`; después, que pertenezca al hogar (`members` o `memberEmails`).
+- La seguridad real está en `firestore.rules`: primero se exige que el email esté verificado y en `config/access.allowedEmails`; después, que pertenezca al hogar (`members` o `memberEmails`).
 - **Las contraseñas las gestiona Firebase Authentication.** Se guardan hasheadas y no se pueden leer. En Firestore solo se guarda el perfil (`usuarios/{uid}`), nunca la contraseña.
 - **El correo debe estar verificado.** Las reglas exigen `email_verified = true` para leer o escribir datos. Eso evita que alguien cree una cuenta con el correo de otra persona sin acceso a ese buzón.
 - Los UID y emails se administran desde Firebase Console o con el Admin SDK, nunca desde el cliente.
