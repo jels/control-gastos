@@ -8,6 +8,7 @@ describe('LoginComponent', () => {
   let auth: {
     consumeAuthError: ReturnType<typeof vi.fn>;
     getSession: ReturnType<typeof vi.fn>;
+    hasPasswordRecord: ReturnType<typeof vi.fn>;
     getSignInMethods: ReturnType<typeof vi.fn>;
     loginWithEmailPassword: ReturnType<typeof vi.fn>;
     registerWithEmailPassword: ReturnType<typeof vi.fn>;
@@ -15,13 +16,17 @@ describe('LoginComponent', () => {
     resendVerificationEmail: ReturnType<typeof vi.fn>;
     signOutSilently: ReturnType<typeof vi.fn>;
   };
-  let access: { assertAllowed: ReturnType<typeof vi.fn> };
+  let access: {
+    isEmailAllowed: ReturnType<typeof vi.fn>;
+    assertAllowed: ReturnType<typeof vi.fn>;
+  };
   let router: { navigate: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     auth = {
       consumeAuthError: vi.fn().mockReturnValue(''),
       getSession: vi.fn().mockResolvedValue(null),
+      hasPasswordRecord: vi.fn().mockResolvedValue(false),
       getSignInMethods: vi.fn().mockResolvedValue([]),
       loginWithEmailPassword: vi.fn(),
       registerWithEmailPassword: vi.fn(),
@@ -31,6 +36,7 @@ describe('LoginComponent', () => {
     };
 
     access = {
+      isEmailAllowed: vi.fn().mockResolvedValue(true),
       assertAllowed: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -61,9 +67,21 @@ describe('LoginComponent', () => {
     expect(component.step).toBe('email');
   });
 
-  it('shows the password step when the email already has a password', async () => {
+  it('rejects an email that is not in config/access', async () => {
     const component = await createComponent();
-    auth.getSignInMethods.mockResolvedValue(['password']);
+    access.isEmailAllowed.mockResolvedValue(false);
+
+    component.email = 'desconocido@example.com';
+    await component.checkEmail();
+
+    expect(component.step).toBe('email');
+    expect(component.errorMessage).toContain('no está autorizado');
+    expect(auth.getSignInMethods).not.toHaveBeenCalled();
+  });
+
+  it('shows the password step when the access index says it has a password', async () => {
+    const component = await createComponent();
+    auth.hasPasswordRecord.mockResolvedValue(true);
 
     component.email = 'persona@example.com';
     await component.checkEmail();
@@ -71,6 +89,19 @@ describe('LoginComponent', () => {
     expect(component.step).toBe('password');
     expect(component.allowAssign).toBe(false);
     expect(component.email).toBe('persona@example.com');
+    expect(auth.getSignInMethods).not.toHaveBeenCalled();
+  });
+
+  it('falls back to Firebase methods when the access index is missing', async () => {
+    const component = await createComponent();
+    auth.hasPasswordRecord.mockResolvedValue(false);
+    auth.getSignInMethods.mockResolvedValue(['password']);
+
+    component.email = 'persona@example.com';
+    await component.checkEmail();
+
+    expect(component.step).toBe('password');
+    expect(component.allowAssign).toBe(false);
   });
 
   it('shows the assign step when the email has no account', async () => {

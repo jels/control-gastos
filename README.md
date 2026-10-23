@@ -28,7 +28,7 @@ Antes de usar la app:
 
 1. Completá `src/environments/firebase.config.ts` con la configuración de tu proyecto Firebase.
 2. Habilitá en Firebase Authentication: **Email/Password**. Google es opcional y la pantalla de login actual no lo muestra.
-3. Creá en Firestore el documento `config/access` con el campo `allowedEmails` (array) y los correos autorizados.
+3. Creá en Firestore el documento `config/access` con el campo `allowedEmails` (array) y los correos autorizados. La app lo valida antes de pedir la contraseña.
 4. Publicá las reglas de `firestore.rules`. Exigen que el correo esté verificado y autorizado.
 5. Seguí la guía completa: **[docs/FIREBASE.md](docs/FIREBASE.md)**.
 
@@ -84,10 +84,10 @@ Pueden leer y escribir los UID incluidos en `households/{householdId}.members` y
 
 ## Notas
 
-- **Login en dos pasos:** primero solo el correo y **Ingresar**. Si el correo tiene contraseña, aparece el campo de contraseña con el correo bloqueado y los botones **Ingresar** / **Usar otra cuenta**. Si es la primera vez, aparece **Asignar contraseña**. **Usar otra cuenta** cierra la sesión y vuelve al inicio vacío.
+- **Login en dos pasos:** primero solo el correo y **Ingresar**. La app valida que esté en `config/access.allowedEmails`; si no está, no avanza. Si está autorizado y tiene contraseña, aparece el correo bloqueado, el campo **Contraseña** y **Ingresar** / **Usar otra cuenta**. Si no tiene contraseña, aparece **Asignar contraseña**. **Usar otra cuenta** cierra la sesión y vuelve al inicio vacío.
 - **Verificación de correo:** al asignar una contraseña, Firebase envía un enlace de verificación. Hasta abrirlo, las reglas de Firestore bloquean el acceso. La app muestra **Ya verifiqué** y **Reenviar correo**.
-- **La contraseña no se guarda en Firestore**: Firebase Authentication la almacena hasheada. En `usuarios/{uid}` solo se guarda el perfil (email, nombre, proveedor y último acceso).
-- **Lista de acceso global:** solo los emails de `config/access.allowedEmails` pueden usar la app. El resto se desloguea automáticamente y las reglas también le bloquean los datos.
+- **La contraseña no se guarda en Firestore**: Firebase Authentication la almacena hasheada. En `usuarios/{uid}` se guarda el perfil (email, nombre, proveedor, `passwordSet`, `emailVerified`, `householdId` y último acceso), nunca la contraseña. La colección `acceso/{email}` solo indica si el correo ya tiene contraseña para poder decidir el paso del login.
+- **Lista de acceso global:** solo los emails de `config/access.allowedEmails` pueden usar la app. Se valida antes de pedir la contraseña y se vuelve a validar después del login; las reglas también bloquean los datos al resto. La app también consulta `acceso/{email}` para saber si ya hay contraseña.
 - **Primer ingreso y hogar:** la primera cuenta autorizada y verificada crea `households/casa` automáticamente. Para sumar a otra persona, agregá su email a `config/access.allowedEmails`; si hay lugar, la app la suma al hogar sola.
 - **Optimus UI es MIT**: no requiere licencia, registro ni clave. Es la alternativa comunitaria compatible con la API de PrimeNG 22.
 - **AngularFire no está instalado**: su versión estable apunta a Angular 20 y todavía no hay una estable para Angular 22. La integración usa `firebase/app`, `firebase/auth` y `firebase/firestore`.

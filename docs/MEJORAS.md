@@ -18,6 +18,8 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 | Contraseñas en texto plano dentro del bundle | Resuelto con Firebase Authentication. |
 | Login con usuario/contraseña | Reemplazado por Firebase Authentication con correo y contraseña. |
 | Cuentas con contraseña sin correo verificado | Se exige verificación por email antes de acceder a Firestore. |
+| Correos no autorizados podían llegar al paso de contraseña | Se valida `config/access.allowedEmails` antes de mostrar contraseña o asignación. |
+| Detección de contraseña dependía de Email enumeration protection | Se agregó el índice `acceso/{email}` con `passwordSet`, sin guardar contraseñas ni hashes. |
 | Usuarios sin tabla visible | Perfil en `usuarios/{uid}` (email, nombre, proveedor, último acceso); la contraseña queda en Firebase Auth, hasheada. |
 | Cuentas creadas solo con Google | Se eliminan y recrean con contraseña; la app guía el proceso. |
 | Acceso de cualquier cuenta | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |

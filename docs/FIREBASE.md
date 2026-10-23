@@ -20,7 +20,17 @@ usuarios/
     email: string
     displayName: string
     provider: "password" | "google.com"
+    passwordSet: boolean
+    emailVerified: boolean
+    householdId: string       ← se completa al entrar al hogar
     lastLogin: Timestamp
+
+acceso/
+  {email}/                      ← índice para el login (sin contraseña)
+    email: string
+    uid: string
+    passwordSet: true
+    updatedAt: Timestamp
 
 households/
   casa/                         ← documento del hogar
@@ -40,6 +50,7 @@ households/
 ```
 
 - `usuarios/{uid}` guarda el perfil. **La contraseña no se guarda en Firestore**; Firebase Auth la almacena hasheada.
+- `acceso/{email}` es un índice mínimo para saber si un correo ya tiene contraseña antes de mostrarte el campo. Tampoco guarda la contraseña ni su hash.
 - `households/casa` define **quién pertenece al hogar**.
 - Los gastos viven en la subcolección `gastos`.
 - `firestore.rules` permite leer/escribir si el UID está en `members` o el email verificado está en `memberEmails`.
@@ -150,15 +161,21 @@ config/access
 - Campo: `allowedEmails` (tipo **array** de strings)
 - Valores: los emails autorizados que pueden usar la app.
 
-La app lee este documento después de verificar el correo. Si el email no está en la lista, **cierra la sesión inmediatamente** y muestra “Esta cuenta no está autorizada”.
+La app valida este documento **antes de mostrar el campo de contraseña**. Si el correo no está en la lista, no avanza y muestra “Este correo no está autorizado”.
+
+Después del login, la app vuelve a validar el email. Si dejó de estar en la lista, **cierra la sesión inmediatamente**.
 
 Las reglas de Firestore también exigen que el email esté en `allowedEmails` para leer o escribir cualquier dato. Así, aunque alguien intente saltarse el frontend, no puede acceder a Firestore.
+
+> El documento `config/access` se puede leer puntualmente sin sesión para hacer esta primera validación. Solo contiene emails; no guarda contraseñas ni otros datos. La colección no se puede listar y nadie puede escribirla desde la app.
 
 > Si Firestore todavía no existe, crealo primero en el paso 7 y volvé a este paso.
 
 ### Cuentas y hogar
 
 No hace falta crear usuarios a mano. La primera vez que alguien asigna una contraseña con **“Asignar contraseña”**, Firebase crea la cuenta automáticamente y envía el correo de verificación.
+
+Al verificar el correo, la app crea el perfil `usuarios/{uid}` y el índice `acceso/{email}`. Cuando la cuenta entra al hogar, se completa `householdId` en el perfil.
 
 Para que la primera cuenta pueda crear el hogar, su email tiene que estar en `config/access.allowedEmails` y tiene que estar verificado.
 
@@ -181,10 +198,31 @@ usuarios/{uid}
   email: string
   displayName: string
   provider: "password" | "google.com"
+  passwordSet: boolean
+  emailVerified: boolean
+  householdId: string
   lastLogin: Timestamp
 ```
 
-**La contraseña no se guarda en Firestore.** Firebase Authentication la almacena hasheada y no se puede leer. Guardar contraseñas en la base sería un riesgo de seguridad y no es necesario.
+**La contraseña no se guarda en Firestore.** Firebase Authentication la almacena hasheada y no se puede leer. Guardar contraseñas o hashes en la base sería un riesgo de seguridad y no es necesario: las reglas de Firestore no pueden validar una contraseña, así que la verificación real siempre la hace Firebase Auth en el servidor.
+
+`passwordSet` y `emailVerified` son solo informativos: sirven para ver el estado en Firestore, pero la autenticación real la valida Firebase Auth.
+
+### Índice de acceso `acceso/{email}`
+
+Cuando una cuenta con contraseña inicia sesión o termina de verificarse, la app crea o actualiza este documento:
+
+```text
+acceso/{email}
+  email: string
+  uid: string
+  passwordSet: true
+  updatedAt: Timestamp
+```
+
+Sirve para que el login sepa si debe pedir contraseña incluso si Firebase tiene activada **Email enumeration protection**. Se puede leer puntualmente antes del login y no se puede listar; solo la propia cuenta, ya verificada y con contraseña, puede escribir su documento. **No contiene la contraseña ni el hash**: la contraseña real vive en Firebase Authentication.
+
+Si eliminás una cuenta desde **Authentication → Users**, borrá también su documento en `acceso` para que el login no siga mostrando el paso de contraseña.
 
 ### Verificación del correo
 
@@ -211,6 +249,7 @@ Firebase crea la cuenta con el proveedor Google, pero **sin contraseña**. En es
 4. Abrí el enlace de verificación que llega al correo.
 5. La membresía por email en `households/casa.memberEmails` se mantiene; si no está, agregala manualmente.
 6. Si el hogar ya tenía 2 miembros, reemplazá el UID viejo por el UID nuevo en `members`. El UID cambia al eliminar y recrear el usuario.
+7. Opcional: borrá el documento viejo `usuarios/{uid_anterior}`. El perfil nuevo se crea con el UID nuevo.
 
 No se puede asignar contraseña a una cuenta que solo tiene Google desde el cliente. Por eso hay que eliminar y recrear el usuario. La app no expone el flujo de vincular Google con contraseña.
 
@@ -275,6 +314,8 @@ firebase deploy --only firestore:rules
 
 Las reglas hacen lo siguiente:
 
+- Permiten leer puntualmente `config/access` antes del login para validar el correo (solo emails).
+- Permiten leer puntualmente `acceso/{email}` para saber si ya tiene contraseña (solo estado, sin contraseña).
 - Exigen usuario autenticado con email verificado (Google o correo/contraseña).
 - Exigen que el email esté en `config/access.allowedEmails`.
 - Permiten crear el hogar solo si el hogar no existe.
@@ -316,10 +357,11 @@ npm start
 Abrí <http://localhost:4200>. El login es en dos pasos:
 
 1. Escribí tu correo y hacé clic en **Ingresar**.
-2. Si el correo ya tiene contraseña, la app muestra el correo bloqueado, el campo **Contraseña** y los botones **Ingresar** / **Usar otra cuenta**.
-3. Si es la primera vez, aparece el campo de contraseña y el botón **Asignar contraseña**.
-4. Después de asignar la contraseña, abrí el enlace de verificación que llega al correo y tocá **Ya verifiqué** en la app.
-5. **Usar otra cuenta** vuelve al inicio con el correo vacío y sin sesión.
+2. La app comprueba que el correo esté en `config/access.allowedEmails`. Si no está, no avanza.
+3. Si está autorizado y el índice `acceso/{email}` indica que ya tiene contraseña, la app muestra el correo bloqueado, el campo **Contraseña** y los botones **Ingresar** / **Usar otra cuenta**.
+4. Si está autorizado pero no tiene contraseña, aparece el campo de contraseña y el botón **Asignar contraseña**.
+5. Después de asignar la contraseña, abrí el enlace de verificación que llega al correo y tocá **Ya verifiqué** en la app.
+6. **Usar otra cuenta** vuelve al inicio con el correo vacío y sin sesión.
 
 Si **Email enumeration protection** está activada, la app no puede saber de antemano si el correo tiene contraseña; muestra el campo de contraseña con la opción **Asignar contraseña** como fallback.
 
@@ -497,7 +539,8 @@ Verificá los límites actuales en <https://firebase.google.com/pricing>.
 | Olvidé mi contraseña | No hay recuperación automática en la UI | Un administrador puede enviar el restablecimiento desde Authentication → Users → Restablecer contraseña |
 | `permission-denied` | El email no está verificado, no está en `config/access.allowedEmails`, no es miembro del hogar o las reglas no se publicaron | Verificá el correo, revisá el paso 6 y publicá las reglas del paso 9 |
 | `Missing or insufficient permissions` | Igual que el anterior | Revisá la lista de acceso, miembros y reglas |
-| La app muestra “Esta cuenta no está autorizada” | El email no está en `config/access.allowedEmails` | Agregalo en Firestore y volvé a iniciar sesión |
+| La app muestra “Este correo no está autorizado” antes de pedir contraseña | El email no está en `config/access.allowedEmails` o las reglas no permiten leer ese documento | Agregá el email en Firestore y publicá las reglas del paso 9 |
+| La app muestra “Esta cuenta no está autorizada” después del login | El email dejó de estar en `config/access.allowedEmails` | Agregalo en Firestore y volvé a iniciar sesión |
 | La app muestra “Tu cuenta no tiene acceso al hogar” | El email no está en `memberEmails` y el UID no está en `members` | Agregá uno de los dos en `households/casa` |
 | La primera cuenta no puede crear el hogar | Su email no está en `config/access.allowedEmails` o las reglas no se publicaron | Agregalo en Firestore, publicá las reglas y volvé a intentar |
 | La app dice “Firebase no está configurado” | Los valores siguen siendo `TU_...` | Pegá la configuración real |
@@ -509,6 +552,7 @@ Verificá los límites actuales en <https://firebase.google.com/pricing>.
 ## 18. Seguridad: lo importante
 
 - La configuración web de Firebase es pública. No la trates como un secreto.
+- `config/access` y `acceso/{email}` se pueden leer puntualmente sin sesión para validar el correo y saber si ya tiene contraseña. Solo contienen emails y estado; no pongas ahí contraseñas, hashes, tokens ni datos sensibles.
 - La seguridad real está en `firestore.rules`: primero se exige que el email esté verificado y en `config/access.allowedEmails`; después, que pertenezca al hogar (`members` o `memberEmails`).
 - **Las contraseñas las gestiona Firebase Authentication.** Se guardan hasheadas y no se pueden leer. En Firestore solo se guarda el perfil (`usuarios/{uid}`), nunca la contraseña.
 - **El correo debe estar verificado.** Las reglas exigen `email_verified = true` para leer o escribir datos. Eso evita que alguien cree una cuenta con el correo de otra persona sin acceso a ese buzón.

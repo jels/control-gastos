@@ -596,7 +596,8 @@ export class DashboardComponent implements OnInit {
     this.accessUid = identity.uid;
 
     try {
-      await this.householdService.ensureHousehold();
+      const household = await this.householdService.ensureHousehold();
+      await this.authService.saveHouseholdAssignment(household.id);
       await this.cargarGastos();
     } catch (error) {
       if (error instanceof HouseholdAccessError) {

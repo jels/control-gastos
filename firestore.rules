@@ -65,9 +65,11 @@ service cloud.firestore {
     }
 
     // La lista de acceso se administra desde Firebase Console.
-    // El cliente puede leerla para saber si el email está autorizado.
+    // Se permite leer ese documento puntual antes del login para validar el
+    // correo. Solo contiene emails; no se puede listar la colección ni escribir.
     match /config/access {
-      allow read: if hasVerifiedEmail();
+      allow get: if true;
+      allow list: if false;
       allow write: if false;
     }
 
@@ -76,6 +78,21 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow read, write: if isAllowedEmail()
         && request.auth.uid == uid;
+    }
+
+    // Índice mínimo para saber, antes del login, si un correo ya tiene
+    // contraseña. No guarda contraseñas ni hashes; solo el estado.
+    // Se puede leer puntualmente, pero no listar ni escribir sin verificar.
+    match /acceso/{email} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if hasVerifiedEmail()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.auth.token.email.lower() == email
+        && request.resource.data.email.lower() == email
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.passwordSet == true
+        && request.resource.data.updatedAt is timestamp;
     }
 
     match /households/{householdId} {

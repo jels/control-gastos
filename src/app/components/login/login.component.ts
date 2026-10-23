@@ -355,36 +355,62 @@ export class LoginComponent implements OnInit {
     this.checkingEmail = true;
 
     try {
-      const methods = await this.authService.getSignInMethods(normalized);
+      // Primera verificación: el correo debe estar en config/access.
+      let allowed: boolean;
 
-      this.email = normalized;
-      this.password = '';
-
-      if (methods.includes('password')) {
-        this.step = 'password';
-        this.allowAssign = false;
-      } else if (methods.includes('google.com')) {
-        this.step = 'blocked';
-        this.allowAssign = false;
-      } else {
-        this.step = 'assign';
-        this.allowAssign = false;
-      }
-    } catch (error) {
-      const code = (error as { code?: string } | null)?.code ?? '';
-
-      if (code === 'auth/network-request-failed') {
+      try {
+        allowed = await this.accessService.isEmailAllowed(normalized);
+      } catch (error) {
         this.errorMessage = this.mapAuthError(error);
         return;
       }
 
-      // Firebase puede bloquear la consulta por email enumeration protection.
-      // Mostramos el paso de contraseña y dejamos también la opción de asignarla.
+      if (!allowed) {
+        this.errorMessage =
+          'Este correo no está autorizado. Pedile al administrador que lo agregue a config/access.allowedEmails.';
+        return;
+      }
+
       this.email = normalized;
-      this.step = 'password';
-      this.allowAssign = true;
-      this.errorMessage =
-        'No se pudo verificar si el correo ya tiene contraseña. Si es tu primera vez, usá “Asignar contraseña”.';
+      this.password = '';
+
+      // Segunda verificación: ¿ya tiene contraseña o hay que asignarla?
+      // El índice `acceso/{email}` evita depender de la protección contra
+      // enumeración de emails de Firebase.
+      try {
+        if (await this.authService.hasPasswordRecord(normalized)) {
+          this.step = 'password';
+          this.allowAssign = false;
+          return;
+        }
+
+        const methods = await this.authService.getSignInMethods(normalized);
+
+        if (methods.includes('password')) {
+          this.step = 'password';
+          this.allowAssign = false;
+        } else if (methods.includes('google.com')) {
+          this.step = 'blocked';
+          this.allowAssign = false;
+        } else {
+          this.step = 'assign';
+          this.allowAssign = false;
+        }
+      } catch (error) {
+        const code = (error as { code?: string } | null)?.code ?? '';
+
+        if (code === 'auth/network-request-failed') {
+          this.errorMessage = this.mapAuthError(error);
+          return;
+        }
+
+        // Firebase puede devolver [] o fallar por email enumeration protection.
+        // Mostramos contraseña y dejamos también la opción de asignarla.
+        this.step = 'password';
+        this.allowAssign = true;
+        this.errorMessage =
+          'No se pudo verificar si el correo ya tiene contraseña. Si es tu primera vez, usá “Asignar contraseña”.';
+      }
     } finally {
       this.checkingEmail = false;
     }
@@ -566,6 +592,8 @@ export class LoginComponent implements OnInit {
         'Este dominio no está autorizado en Firebase Authentication. Agregalo en Authentication → Settings → Authorized domains.',
       'auth/network-request-failed':
         'Sin conexión. Verificá tu conexión a internet.',
+      unavailable:
+        'Sin conexión con Firestore. Verificá tu conexión a internet.',
       'auth/internal-error':
         'Firebase devolvió un error interno. Intentá de nuevo.',
       'auth/invalid-email': 'El correo electrónico no es válido.',

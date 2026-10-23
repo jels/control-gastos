@@ -17,7 +17,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 import { isFirebaseConfigured } from '../../environments/firebase.config';
 import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
@@ -239,6 +239,28 @@ export class AuthService {
     return true;
   }
 
+  /**
+   * Consulta el índice público de cuentas con contraseña.
+   * Permite saber si hay que pedir contraseña incluso si Firebase tiene
+   * activada la protección contra enumeración de emails.
+   */
+  async hasPasswordRecord(email: string): Promise<boolean> {
+    const normalized = this.normalizeEmail(email);
+
+    try {
+      const snapshot = await getDoc(
+        doc(this.firestore, 'acceso', normalized)
+      );
+
+      return (
+        snapshot.exists() && snapshot.data()['passwordSet'] === true
+      );
+    } catch (error) {
+      console.warn('No se pudo consultar el índice de acceso.', error);
+      return false;
+    }
+  }
+
   /** Estado de la sesión, sin tocar Firestore. */
   async getSession(): Promise<SessionState | null> {
     await this.auth.authStateReady();
@@ -388,6 +410,28 @@ export class AuthService {
     return this.auth.currentUser !== null;
   }
 
+  /** Deja registrado en el perfil a qué hogar pertenece la cuenta. */
+  async saveHouseholdAssignment(householdId: string): Promise<void> {
+    const user = this.auth.currentUser;
+
+    if (!user) {
+      return;
+    }
+
+    try {
+      await setDoc(
+        doc(this.firestore, 'usuarios', user.uid),
+        { householdId },
+        { merge: true }
+      );
+    } catch (error) {
+      console.warn(
+        'No se pudo guardar el hogar del usuario en Firestore.',
+        error
+      );
+    }
+  }
+
   getCurrentUser(): string {
     const user = this.auth.currentUser;
     return user?.displayName?.trim() || user?.email || '';
@@ -425,6 +469,8 @@ export class AuthService {
           email: user.email ?? '',
           displayName: user.displayName ?? '',
           provider,
+          passwordSet: provider === 'password',
+          emailVerified: user.emailVerified,
           lastLogin: serverTimestamp(),
         },
         { merge: true }
@@ -434,6 +480,37 @@ export class AuthService {
         'No se pudo guardar el perfil del usuario en Firestore.',
         error
       );
+    }
+
+    if (provider === 'password') {
+      await this.savePasswordRecord(user);
+    }
+  }
+
+  /**
+   * Índice mínimo para saber si un correo ya tiene contraseña antes del login.
+   * No guarda la contraseña ni su hash: eso queda en Firebase Authentication.
+   */
+  private async savePasswordRecord(user: User): Promise<void> {
+    const email = user.email?.trim().toLowerCase();
+
+    if (!email) {
+      return;
+    }
+
+    try {
+      await setDoc(
+        doc(this.firestore, 'acceso', email),
+        {
+          email,
+          uid: user.uid,
+          passwordSet: true,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      console.warn('No se pudo guardar el índice de acceso.', error);
     }
   }
 
