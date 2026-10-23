@@ -116,7 +116,9 @@ export const firebaseConfig: FirebaseOptions = {
 
 > El login con usuario y contraseña ya no se usa. Puede quedar deshabilitado en Firebase Console.
 >
-> El login con Google usa **popup** como método principal y **redirect** como fallback si el navegador bloquea la ventana. Se agregó `Cross-Origin-Opener-Policy: same-origin-allow-popups` para evitar problemas de COOP.
+> El login con Google usa **popup** en escritorio y **redirect** en celular/PWA, porque los navegadores móviles suelen bloquear los popups. Se agregó `Cross-Origin-Opener-Policy: same-origin-allow-popups` para evitar problemas de COOP.
+>
+> Para probar en el celular, abrí la app desde el dominio de Netlify (no desde `localhost`, que en el teléfono apunta al propio teléfono) y agregá ese dominio en **Authentication → Settings → Authorized domains**.
 >
 > **Antes de publicar las reglas**, creá la lista de acceso `config/access` (paso 6). Sin ese documento, nadie puede usar la app.
 
@@ -420,6 +422,8 @@ Verificá los límites actuales en <https://firebase.google.com/pricing>.
 |---|---|---|
 | `auth/api-key-not-valid` | Configuración incorrecta o incompleta | Revisá `src/environments/firebase.config.ts` |
 | `auth/operation-not-allowed` | Google no habilitado | Authentication → Sign-in method → Google |
+| En el celular no aparece el popup de Google | Es esperado: en móvil se usa redirect | El selector de Google se abre en la misma pestaña |
+| En el celular vuelve al login sin elegir cuenta | Dominio no autorizado o almacenamiento bloqueado | Agregá el dominio de Netlify en Authorized domains y permití cookies/almacenamiento |
 | `auth/unauthorized-domain` | El dominio no está autorizado | Authentication → Settings → Authorized domains |
 | `auth/popup-blocked` | El navegador bloqueó la ventana | Habilitá las ventanas emergentes; la app intenta redirect como fallback |
 | `auth/popup-closed-by-user` | Se cerró la ventana de Google | Intentá de nuevo |

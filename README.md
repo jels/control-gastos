@@ -82,6 +82,7 @@ Solo los UID incluidos en `households/{householdId}.members` pueden leer y escri
 
 ## Notas
 
+- **Google en celular:** usa redirect automáticamente (el selector de Google se abre en la misma pestaña). En escritorio usa popup, con redirect como fallback.
 - **Lista de acceso global:** solo los emails de `config/access.allowedEmails` pueden usar la app. El resto se desloguea automáticamente y las reglas también le bloquean los datos.
 - **Login con Google:** la primera cuenta autorizada crea `households/casa` automáticamente. Para sumar a otra persona, agregá su email a `config/access.allowedEmails`; si hay lugar, la app la suma al hogar sola.
 - **Optimus UI es MIT**: no requiere licencia, registro ni clave. Es la alternativa comunitaria compatible con la API de PrimeNG 22.

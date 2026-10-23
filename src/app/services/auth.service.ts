@@ -30,14 +30,18 @@ export class AuthService {
   /**
    * Inicia sesión con Google.
    *
-   * Usa popup como método principal (funciona mejor con el bloqueo de
-   * almacenamiento de terceros de Brave). Si el navegador bloquea el popup,
-   * cae a redirect. El resultado del redirect se completa en
-   * `handleRedirectResult`.
+   * En celular/PWA usa redirect directo, porque los navegadores móviles
+   * suelen bloquear los popups. En escritorio usa popup y cae a redirect
+   * si el navegador lo bloquea.
    */
   async loginWithGoogle(): Promise<void> {
     if (!isFirebaseConfigured()) {
       throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    if (this.shouldUseRedirect()) {
+      await this.loginWithGoogleRedirect();
+      return;
     }
 
     try {
@@ -49,7 +53,7 @@ export class AuthService {
         code === 'auth/popup-blocked' ||
         code === 'auth/operation-not-supported-in-this-environment'
       ) {
-        await signInWithRedirect(this.auth, this.googleProvider);
+        await this.loginWithGoogleRedirect();
         return;
       }
 
@@ -57,6 +61,15 @@ export class AuthService {
     }
 
     await this.enforceAllowlist();
+  }
+
+  /** Fuerza el flujo de redirección (útil si el popup no se abre). */
+  async loginWithGoogleRedirect(): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    await signInWithRedirect(this.auth, this.googleProvider);
   }
 
   /** Completa un login con redirect al volver a la app. */
@@ -138,5 +151,22 @@ export class AuthService {
       await this.signOutSilently();
       throw error;
     }
+  }
+
+  private shouldUseRedirect(): boolean {
+    if (typeof navigator === 'undefined' || typeof window === 'undefined') {
+      return true;
+    }
+
+    const userAgent = navigator.userAgent || '';
+    const isMobile =
+      /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(userAgent);
+    const isIPadOS =
+      /Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1;
+    const isStandalone =
+      window.matchMedia?.('(display-mode: standalone)').matches === true ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true;
+
+    return isMobile || isIPadOS || isStandalone;
   }
 }

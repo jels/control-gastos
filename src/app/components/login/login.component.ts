@@ -68,6 +68,17 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
             }
           </button>
 
+          <button
+            pButton
+            type="button"
+            variant="text"
+            class="w-full"
+            [disabled]="loading"
+            (click)="loginWithRedirect()"
+          >
+            ¿No se abre la ventana? Usar redirección
+          </button>
+
           @if (errorMessage) {
             <p-message severity="error">
               {{ errorMessage }}
@@ -75,9 +86,9 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
           }
 
           <small class="text-500 text-center">
+            En el celular se abre el selector de Google en la misma pestaña.
             Solo pueden entrar las cuentas autorizadas en
-            <code>config/access</code>. Si tu email no está en la lista, la app
-            cierra la sesión automáticamente.
+            <code>config/access</code>.
           </small>
         </div>
       </p-card>
@@ -127,6 +138,18 @@ export class LoginComponent implements OnInit {
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
     } finally {
+      this.loading = false;
+    }
+  }
+
+  async loginWithRedirect(): Promise<void> {
+    this.errorMessage = '';
+    this.loading = true;
+
+    try {
+      await this.authService.loginWithGoogleRedirect();
+    } catch (error) {
+      this.errorMessage = this.mapAuthError(error);
       this.loading = false;
     }
   }
