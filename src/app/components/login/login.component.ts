@@ -10,6 +10,8 @@ import { AuthService } from '../../services/auth.service';
 import { AccessService } from '../../services/access.service';
 import { isFirebaseConfigured } from '../../../environments/firebase.config';
 
+type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
+
 @Component({
   selector: 'app-login',
   standalone: true,
@@ -34,143 +36,246 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
             </p-message>
           }
 
-          <p class="m-0 text-600 text-center">
-            Ingresá con tu cuenta de Google para acceder al historial del
-            hogar.
-          </p>
+          @if (step === 'email') {
+            <div class="flex flex-column gap-2">
+              <label for="email">Correo</label>
+              <input
+                pInputText
+                id="email"
+                type="email"
+                class="w-full"
+                [(ngModel)]="email"
+                placeholder="tu@gmail.com"
+                autocomplete="email"
+                [disabled]="checkingEmail"
+                (keyup.enter)="checkEmail()"
+              />
 
-          <button
-            pButton
-            type="button"
-            class="w-full"
-            [disabled]="loading || emailLoading"
-            (click)="loginWithGoogle()"
-          >
-            @if (loading) {
-              <i class="pi pi-spin pi-spinner"></i>
-              Conectando...
-            } @else {
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 48 48"
-                width="18"
-                height="18"
-                aria-hidden="true"
+              <button
+                pButton
+                type="button"
+                class="w-full"
+                [disabled]="checkingEmail"
+                (click)="checkEmail()"
               >
-                <path
-                  fill="#FFC107"
-                  d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"
-                />
-                <path
-                  fill="#FF3D00"
-                  d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"
-                />
-                <path
-                  fill="#4CAF50"
-                  d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"
-                />
-                <path
-                  fill="#1976D2"
-                  d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"
-                />
-              </svg>
-              Continuar con Google
-            }
-          </button>
+                @if (checkingEmail) {
+                  <i class="pi pi-spin pi-spinner"></i>
+                  Verificando...
+                } @else {
+                  <i class="pi pi-sign-in"></i>
+                  Ingresar
+                }
+              </button>
+            </div>
+          }
 
-          <button
-            pButton
-            type="button"
-            variant="text"
-            class="w-full"
-            [disabled]="loading || emailLoading"
-            (click)="loginWithRedirect()"
-          >
-            ¿No se abre la ventana? Usar redirección
-          </button>
+          @if (step === 'password') {
+            <div class="flex flex-column gap-2">
+              <label for="locked-email">Correo</label>
+              <input
+                pInputText
+                id="locked-email"
+                type="email"
+                class="w-full"
+                [value]="email"
+                disabled
+              />
 
-          <div class="flex align-items-center gap-2 my-2">
-            <span
-              class="flex-1"
-              style="height:1px;background:var(--p-surface-200)"
-            ></span>
-            <span class="text-500 text-sm">o</span>
-            <span
-              class="flex-1"
-              style="height:1px;background:var(--p-surface-200)"
-            ></span>
-          </div>
+              <label class="font-semibold">Contraseña</label>
+              <p-password
+                [(ngModel)]="password"
+                [feedback]="false"
+                [toggleMask]="true"
+                [fluid]="true"
+                [disabled]="emailLoading"
+                (keyup.enter)="loginWithPassword()"
+              ></p-password>
 
-          <div class="flex flex-column gap-2">
-            <label for="email">Correo</label>
-            <input
-              pInputText
-              id="email"
-              type="email"
-              class="w-full"
-              [(ngModel)]="email"
-              placeholder="tu@gmail.com"
-              autocomplete="email"
-              [disabled]="emailLoading || loading"
-              (keyup.enter)="loginWithEmail()"
-            />
-
-            <label class="font-semibold">Contraseña</label>
-            <p-password
-              [(ngModel)]="password"
-              [feedback]="false"
-              [toggleMask]="true"
-              [fluid]="true"
-              [disabled]="emailLoading || loading"
-              (keyup.enter)="loginWithEmail()"
-            ></p-password>
-
-            <button
-              pButton
-              type="button"
-              class="w-full"
-              [disabled]="emailLoading || loading"
-              (click)="loginWithEmail()"
-            >
-              @if (emailLoading) {
-                <i class="pi pi-spin pi-spinner"></i>
-                Procesando...
-              } @else {
-                <i class="pi pi-sign-in"></i>
-                Ingresar
+              @if (allowAssign) {
+                <p class="m-0 text-600 text-sm text-center">
+                  Si es tu primera vez con este correo, usá “Asignar
+                  contraseña”.
+                </p>
               }
-            </button>
+
+              <button
+                pButton
+                type="button"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="loginWithPassword()"
+              >
+                @if (emailLoading) {
+                  <i class="pi pi-spin pi-spinner"></i>
+                  Ingresando...
+                } @else {
+                  <i class="pi pi-sign-in"></i>
+                  Ingresar
+                }
+              </button>
+
+              @if (allowAssign) {
+                <button
+                  pButton
+                  type="button"
+                  variant="outlined"
+                  class="w-full"
+                  [disabled]="emailLoading"
+                  (click)="assignPassword()"
+                >
+                  <i class="pi pi-key"></i>
+                  Asignar contraseña
+                </button>
+              }
+
+              <button
+                pButton
+                type="button"
+                variant="text"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="resetAccount()"
+              >
+                Usar otra cuenta
+              </button>
+            </div>
+          }
+
+          @if (step === 'assign') {
+            <div class="flex flex-column gap-2">
+              <p class="m-0 text-600 text-center">
+                Es la primera vez con este correo. Asigná una contraseña.
+              </p>
+
+              <label for="assign-email">Correo</label>
+              <input
+                pInputText
+                id="assign-email"
+                type="email"
+                class="w-full"
+                [value]="email"
+                disabled
+              />
+
+              <label class="font-semibold">Contraseña</label>
+              <p-password
+                [(ngModel)]="password"
+                [feedback]="false"
+                [toggleMask]="true"
+                [fluid]="true"
+                [disabled]="emailLoading"
+                (keyup.enter)="assignPassword()"
+              ></p-password>
+
+              <button
+                pButton
+                type="button"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="assignPassword()"
+              >
+                @if (emailLoading) {
+                  <i class="pi pi-spin pi-spinner"></i>
+                  Guardando...
+                } @else {
+                  <i class="pi pi-key"></i>
+                  Asignar contraseña
+                }
+              </button>
+
+              <button
+                pButton
+                type="button"
+                variant="text"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="resetAccount()"
+              >
+                Usar otra cuenta
+              </button>
+            </div>
+          }
+
+          @if (step === 'verify') {
+            <div class="flex flex-column gap-2">
+              <p class="m-0 font-semibold text-center">Verificá tu correo</p>
+              <p class="m-0 text-600 text-center">
+                Te enviamos un enlace a <strong>{{ email }}</strong>. Abrí el
+                enlace y después tocá “Ya verifiqué”.
+              </p>
+
+              @if (verificationEmailSent === false) {
+                <p-message severity="warn">
+                  No pudimos enviar el correo automáticamente. Usá “Reenviar
+                  correo”.
+                </p-message>
+              }
+
+              @if (infoMessage) {
+                <p-message severity="success">{{ infoMessage }}</p-message>
+              }
+
+              <button
+                pButton
+                type="button"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="checkVerification()"
+              >
+                @if (emailLoading) {
+                  <i class="pi pi-spin pi-spinner"></i>
+                  Verificando...
+                } @else {
+                  <i class="pi pi-check"></i>
+                  Ya verifiqué
+                }
+              </button>
+
+              <button
+                pButton
+                type="button"
+                variant="outlined"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="resendVerification()"
+              >
+                <i class="pi pi-envelope"></i>
+                Reenviar correo
+              </button>
+
+              <button
+                pButton
+                type="button"
+                variant="text"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="resetAccount()"
+              >
+                Usar otra cuenta
+              </button>
+            </div>
+          }
+
+          @if (step === 'blocked') {
+            <p-message severity="warn">
+              Ese correo ya existe con Google y no tiene contraseña asignada.
+              Para usar contraseña, eliminá el usuario en Firebase Console →
+              Authentication → Users y volvé a intentar con “Asignar
+              contraseña”.
+            </p-message>
 
             <button
               pButton
               type="button"
               variant="outlined"
               class="w-full"
-              [disabled]="emailLoading || loading"
-              (click)="registerWithEmail()"
+              [disabled]="emailLoading"
+              (click)="resetAccount()"
             >
-              <i class="pi pi-key"></i>
-              Primera vez: asignar contraseña
+              <i class="pi pi-arrow-left"></i>
+              Usar otra cuenta
             </button>
-
-            <button
-              pButton
-              type="button"
-              variant="text"
-              class="w-full"
-              [disabled]="emailLoading || loading"
-              (click)="resetPassword()"
-            >
-              Olvidé mi contraseña
-            </button>
-
-            @if (resetSent) {
-              <p-message severity="success">
-                Si el correo tiene una cuenta con contraseña, recibirás un
-                enlace para restablecerla.
-              </p-message>
-            }
-          </div>
+          }
 
           @if (errorMessage) {
             <p-message severity="error">
@@ -179,8 +284,7 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
           }
 
           <small class="text-500 text-center">
-            En el celular Google usa redirección. También podés entrar con
-            correo y contraseña. Solo pueden entrar las cuentas autorizadas en
+            Solo pueden entrar las cuentas autorizadas en
             <code>config/access</code>.
           </small>
         </div>
@@ -189,12 +293,15 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
   `,
 })
 export class LoginComponent implements OnInit {
-  loading = false;
-  emailLoading = false;
-  resetSent = false;
-  errorMessage = '';
+  step: LoginStep = 'email';
   email = '';
   password = '';
+  checkingEmail = false;
+  emailLoading = false;
+  allowAssign = false;
+  verificationEmailSent: boolean | null = null;
+  errorMessage = '';
+  infoMessage = '';
   readonly firebaseConfigured = isFirebaseConfigured();
 
   constructor(
@@ -205,13 +312,21 @@ export class LoginComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     const authError = this.authService.consumeAuthError();
+    const session = await this.authService.getSession();
 
-    if (authError) {
-      this.errorMessage = this.mapAuthError(new Error(authError));
-      return;
-    }
+    if (session) {
+      this.email = session.email;
 
-    if (await this.authService.isAuthenticated()) {
+      if (!session.emailVerified) {
+        this.step = 'verify';
+
+        if (authError && authError !== 'EMAIL_NOT_VERIFIED') {
+          this.errorMessage = this.mapAuthError(new Error(authError));
+        }
+
+        return;
+      }
+
       try {
         await this.accessService.assertAllowed();
         await this.router.navigate(['/dashboard']);
@@ -219,45 +334,65 @@ export class LoginComponent implements OnInit {
         await this.authService.signOutSilently();
         this.errorMessage = this.mapAuthError(error);
       }
+
+      return;
+    }
+
+    if (authError) {
+      this.errorMessage = this.mapAuthError(new Error(authError));
     }
   }
 
-  async loginWithGoogle(): Promise<void> {
+  async checkEmail(): Promise<void> {
     this.errorMessage = '';
-    this.loading = true;
-
-    try {
-      await this.authService.loginWithGoogle();
-
-      if (await this.authService.isAuthenticated()) {
-        await this.router.navigate(['/dashboard']);
-      }
-    } catch (error) {
-      this.errorMessage = this.mapAuthError(error);
-    } finally {
-      this.loading = false;
-    }
-  }
-
-  async loginWithRedirect(): Promise<void> {
-    this.errorMessage = '';
-    this.loading = true;
-
-    try {
-      await this.authService.loginWithGoogleRedirect();
-    } catch (error) {
-      this.errorMessage = this.mapAuthError(error);
-      this.loading = false;
-    }
-  }
-
-  async loginWithEmail(): Promise<void> {
-    this.errorMessage = '';
-    this.resetSent = false;
+    this.infoMessage = '';
 
     if (!this.validateEmail()) {
       return;
     }
+
+    const normalized = this.email.trim().toLowerCase();
+    this.checkingEmail = true;
+
+    try {
+      const methods = await this.authService.getSignInMethods(normalized);
+
+      this.email = normalized;
+      this.password = '';
+
+      if (methods.includes('password')) {
+        this.step = 'password';
+        this.allowAssign = false;
+      } else if (methods.includes('google.com')) {
+        this.step = 'blocked';
+        this.allowAssign = false;
+      } else {
+        this.step = 'assign';
+        this.allowAssign = false;
+      }
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code ?? '';
+
+      if (code === 'auth/network-request-failed') {
+        this.errorMessage = this.mapAuthError(error);
+        return;
+      }
+
+      // Firebase puede bloquear la consulta por email enumeration protection.
+      // Mostramos el paso de contraseña y dejamos también la opción de asignarla.
+      this.email = normalized;
+      this.step = 'password';
+      this.allowAssign = true;
+      this.errorMessage =
+        'No se pudo verificar si el correo ya tiene contraseña. Si es tu primera vez, usá “Asignar contraseña”.';
+    } finally {
+      this.checkingEmail = false;
+    }
+  }
+
+  async loginWithPassword(): Promise<void> {
+    this.errorMessage = '';
+    this.infoMessage = '';
 
     if (!this.password) {
       this.errorMessage = 'Ingresá tu contraseña.';
@@ -267,10 +402,18 @@ export class LoginComponent implements OnInit {
     this.emailLoading = true;
 
     try {
-      await this.authService.loginWithEmailPassword(
+      const result = await this.authService.loginWithEmailPassword(
         this.email,
         this.password
       );
+
+      if (result.verificationRequired) {
+        this.step = 'verify';
+        this.verificationEmailSent = result.verificationEmailSent;
+        this.password = '';
+        return;
+      }
+
       await this.router.navigate(['/dashboard']);
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
@@ -279,13 +422,9 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  async registerWithEmail(): Promise<void> {
+  async assignPassword(): Promise<void> {
     this.errorMessage = '';
-    this.resetSent = false;
-
-    if (!this.validateEmail()) {
-      return;
-    }
+    this.infoMessage = '';
 
     if (this.password.length < 6) {
       this.errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
@@ -295,10 +434,49 @@ export class LoginComponent implements OnInit {
     this.emailLoading = true;
 
     try {
-      await this.authService.registerWithEmailPassword(
+      const result = await this.authService.registerWithEmailPassword(
         this.email,
         this.password
       );
+
+      if (result.verificationRequired) {
+        this.step = 'verify';
+        this.verificationEmailSent = result.verificationEmailSent;
+        this.password = '';
+        return;
+      }
+
+      await this.router.navigate(['/dashboard']);
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code ?? '';
+
+      if (code === 'auth/email-already-in-use') {
+        this.step = 'password';
+        this.allowAssign = false;
+        this.errorMessage =
+          'Ese correo ya tiene una cuenta. Si ya tiene contraseña, ingresala. Si es una cuenta de Google, eliminá el usuario en Firebase Console → Authentication → Users.';
+      } else {
+        this.errorMessage = this.mapAuthError(error);
+      }
+    } finally {
+      this.emailLoading = false;
+    }
+  }
+
+  async checkVerification(): Promise<void> {
+    this.errorMessage = '';
+    this.infoMessage = '';
+    this.emailLoading = true;
+
+    try {
+      const verified = await this.authService.completeEmailVerification();
+
+      if (!verified) {
+        this.errorMessage =
+          'Todavía no verificaste tu correo. Abrí el enlace que te enviamos y volvé a tocar “Ya verifiqué”.';
+        return;
+      }
+
       await this.router.navigate(['/dashboard']);
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
@@ -307,24 +485,36 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  async resetPassword(): Promise<void> {
+  async resendVerification(): Promise<void> {
     this.errorMessage = '';
-    this.resetSent = false;
-
-    if (!this.validateEmail()) {
-      return;
-    }
-
+    this.infoMessage = '';
     this.emailLoading = true;
 
     try {
-      await this.authService.sendPasswordReset(this.email);
-      this.resetSent = true;
+      await this.authService.resendVerificationEmail();
+      this.verificationEmailSent = true;
+      this.infoMessage = 'Te enviamos otro correo de verificación.';
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
     } finally {
       this.emailLoading = false;
     }
+  }
+
+  async resetAccount(): Promise<void> {
+    try {
+      await this.authService.signOutSilently();
+    } catch {
+      // Si no había sesión, no hay nada que cerrar.
+    }
+
+    this.step = 'email';
+    this.email = '';
+    this.password = '';
+    this.allowAssign = false;
+    this.verificationEmailSent = null;
+    this.errorMessage = '';
+    this.infoMessage = '';
   }
 
   private validateEmail(): boolean {
@@ -350,10 +540,6 @@ export class LoginComponent implements OnInit {
     const messages: Record<string, string> = {
       EMAIL_NOT_ALLOWED:
         'Esta cuenta no está autorizada. Pedile al administrador que agregue tu email a config/access.allowedEmails en Firestore.',
-      EMAIL_FOR_SIGN_IN_REQUIRED:
-        'Ingresá el mismo email con el que pediste el enlace.',
-      EMAIL_LINK_FAILED:
-        'No se pudo completar el login con el enlace. Pedí uno nuevo.',
       ACCESS_CONFIG_MISSING:
         'Falta la lista de acceso en Firestore. Creá el documento config/access con el campo allowedEmails.',
       ACCESS_CONFIG_INVALID:
@@ -361,12 +547,12 @@ export class LoginComponent implements OnInit {
       ACCESS_CHECK_FAILED:
         'No se pudo verificar la lista de acceso. Revisá que firestore.rules esté publicado y tu conexión.',
       NOT_AUTHENTICATED: 'No hay una sesión activa. Intentá de nuevo.',
-      'auth/invalid-credential':
-        'Correo o contraseña incorrectos. Si es tu primera vez, usá “Primera vez: asignar contraseña”.',
-      'auth/wrong-password':
-        'Correo o contraseña incorrectos. Si es tu primera vez, usá “Primera vez: asignar contraseña”.',
+      EMAIL_NOT_VERIFIED:
+        'Verificá tu correo antes de entrar. Abrí el enlace que te enviamos.',
+      'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+      'auth/wrong-password': 'Correo o contraseña incorrectos.',
       'auth/user-not-found':
-        'No existe una cuenta con ese correo. Usá “Primera vez: asignar contraseña”.',
+        'No existe una cuenta con ese correo. Volvé a empezar y usá “Asignar contraseña”.',
       'auth/email-already-in-use':
         'Ese correo ya tiene una cuenta. Si es una cuenta de Google, eliminala en Firebase Console → Authentication → Users y volvé a asignar la contraseña; si ya tiene contraseña, usá “Ingresar”.',
       'auth/weak-password':
@@ -375,29 +561,14 @@ export class LoginComponent implements OnInit {
       'auth/requires-recent-login':
         'Volvé a iniciar sesión para completar esta acción.',
       'auth/operation-not-allowed':
-        'Habilitá Email/Password (y Google si lo usás) en Firebase Authentication.',
-      'auth/popup-closed-by-user': 'Inicio de sesión cancelado.',
-      'auth/cancelled-popup-request': 'Inicio de sesión cancelado.',
-      'auth/popup-blocked':
-        'El navegador bloqueó la ventana de Google. Probá con correo y contraseña.',
+        'Habilitá Email/Password en Firebase Authentication.',
       'auth/unauthorized-domain':
         'Este dominio no está autorizado en Firebase Authentication. Agregalo en Authentication → Settings → Authorized domains.',
-      'auth/account-exists-with-different-credential':
-        'Ya existe una cuenta con ese correo usando otro método de acceso.',
       'auth/network-request-failed':
         'Sin conexión. Verificá tu conexión a internet.',
       'auth/internal-error':
         'Firebase devolvió un error interno. Intentá de nuevo.',
       'auth/invalid-email': 'El correo electrónico no es válido.',
-      'auth/invalid-action-code':
-        'El enlace no es válido o ya se usó. Pedí uno nuevo.',
-      'auth/expired-action-code': 'El enlace expiró. Pedí uno nuevo.',
-      'auth/unauthorized-continue-uri':
-        'El dominio no está autorizado para el enlace. Agregalo en Authentication → Settings → Authorized domains.',
-      'auth/invalid-continue-uri':
-        'La URL de continuación no es válida. Revisá el dominio autorizado.',
-      'auth/quota-exceeded':
-        'Se superó el límite de enlaces. Intentá más tarde.',
       'auth/too-many-requests':
         'Demasiados intentos. Esperá unos minutos e intentá de nuevo.',
       'auth/api-key-not-valid':

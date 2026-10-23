@@ -2,7 +2,7 @@
 
 Aplicación web para registrar y compartir las entradas y salidas de dinero de un hogar.
 
-Dos personas pueden iniciar sesión con su cuenta de Google y ver el mismo historial. Cada movimiento guarda quién lo cargó.
+Dos personas pueden iniciar sesión con correo y contraseña y ver el mismo historial. Cada movimiento guarda quién lo cargó.
 
 ## Stack
 
@@ -27,14 +27,16 @@ npm start
 Antes de usar la app:
 
 1. Completá `src/environments/firebase.config.ts` con la configuración de tu proyecto Firebase.
-2. Habilitá en Firebase Authentication: **Google** y **Email/Password**.
+2. Habilitá en Firebase Authentication: **Email/Password**. Google es opcional y la pantalla de login actual no lo muestra.
 3. Creá en Firestore el documento `config/access` con el campo `allowedEmails` (array) y los correos autorizados.
-4. Seguí la guía completa: **[docs/FIREBASE.md](docs/FIREBASE.md)**.
+4. Publicá las reglas de `firestore.rules`. Exigen que el correo esté verificado y autorizado.
+5. Seguí la guía completa: **[docs/FIREBASE.md](docs/FIREBASE.md)**.
 
 La guía explica cómo:
 
 - Crear el proyecto Firebase.
-- Habilitar Google como método de acceso.
+- Habilitar el acceso con correo y contraseña.
+- Verificar el correo de cada cuenta nueva.
 - Crear Firestore y el documento `households/casa` (la primera cuenta lo crea sola).
 - Agregar el email de la segunda persona a `memberEmails`.
 - Publicar las reglas de seguridad.
@@ -78,15 +80,15 @@ firebase.json
 households/{householdId}/gastos/{gastoId}
 ```
 
-Solo los UID incluidos en `households/{householdId}.members` pueden leer y escribir. La configuración está en `src/environments/environment.ts` (`householdId: 'casa'`).
+Pueden leer y escribir los UID incluidos en `households/{householdId}.members` y los emails verificados incluidos en `memberEmails`. La configuración está en `src/environments/environment.ts` (`householdId: 'casa'`).
 
 ## Notas
 
-- **Google en celular:** usa redirect automáticamente (el selector de Google se abre en la misma pestaña). En escritorio usa popup, con redirect como fallback.
-- **Alternativa con correo y contraseña:** primera vez → “Primera vez: asignar contraseña”; siguientes ingresos → “Ingresar”. Si olvidaste la contraseña, usá “Olvidé mi contraseña”.
+- **Login en dos pasos:** primero solo el correo y **Ingresar**. Si el correo tiene contraseña, aparece el campo de contraseña con el correo bloqueado y los botones **Ingresar** / **Usar otra cuenta**. Si es la primera vez, aparece **Asignar contraseña**. **Usar otra cuenta** cierra la sesión y vuelve al inicio vacío.
+- **Verificación de correo:** al asignar una contraseña, Firebase envía un enlace de verificación. Hasta abrirlo, las reglas de Firestore bloquean el acceso. La app muestra **Ya verifiqué** y **Reenviar correo**.
 - **La contraseña no se guarda en Firestore**: Firebase Authentication la almacena hasheada. En `usuarios/{uid}` solo se guarda el perfil (email, nombre, proveedor y último acceso).
 - **Lista de acceso global:** solo los emails de `config/access.allowedEmails` pueden usar la app. El resto se desloguea automáticamente y las reglas también le bloquean los datos.
-- **Login con Google:** la primera cuenta autorizada crea `households/casa` automáticamente. Para sumar a otra persona, agregá su email a `config/access.allowedEmails`; si hay lugar, la app la suma al hogar sola.
+- **Primer ingreso y hogar:** la primera cuenta autorizada y verificada crea `households/casa` automáticamente. Para sumar a otra persona, agregá su email a `config/access.allowedEmails`; si hay lugar, la app la suma al hogar sola.
 - **Optimus UI es MIT**: no requiere licencia, registro ni clave. Es la alternativa comunitaria compatible con la API de PrimeNG 22.
 - **AngularFire no está instalado**: su versión estable apunta a Angular 20 y todavía no hay una estable para Angular 22. La integración usa `firebase/app`, `firebase/auth` y `firebase/firestore`.
 - **PrimeFlex** se mantiene para las clases utilitarias. Optimus UI recomienda Tailwind; la migración es opcional con `ng generate @openng/optimus-ui:migrate-from-primeflex`.

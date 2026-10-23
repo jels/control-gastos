@@ -9,7 +9,7 @@ import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
  *
  * Fuente de verdad: `config/access.allowedEmails` en Firestore.
  * Las reglas de Firestore también usan ese documento, así que un email fuera
- * de la lista no puede leer ni escribir datos aunque tenga una sesión de Google.
+ * de la lista no puede leer ni escribir datos aunque tenga una sesión válida.
  */
 @Injectable({
   providedIn: 'root',

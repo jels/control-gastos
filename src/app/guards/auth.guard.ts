@@ -12,9 +12,16 @@ export class AuthGuard implements CanActivate {
   private readonly router = inject(Router);
 
   async canActivate(): Promise<boolean | UrlTree> {
-    const authenticated = await this.authService.isAuthenticated();
+    const session = await this.authService.getSession();
 
-    if (!authenticated) {
+    if (!session) {
+      return this.router.createUrlTree(['/login']);
+    }
+
+    // Las reglas de Firestore exigen email_verified. No cerramos la sesión:
+    // el login muestra la pantalla para verificar o reenviar el correo.
+    if (!session.emailVerified) {
+      this.authService.setAuthError('EMAIL_NOT_VERIFIED');
       return this.router.createUrlTree(['/login']);
     }
 

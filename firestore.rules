@@ -1,9 +1,9 @@
 rules_version = '2';
 
 // Modelo de la app:
+// - Perfil en usuarios/{uid} (nunca guarda contraseñas).
 // - Lista global de acceso en config/access.allowedEmails.
 // - Hogar compartido en households/{householdId}/gastos.
-// No usar un modelo usuarios/{uid}/... con esta versión de la app.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -11,7 +11,8 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Google entrega un email verificado. Exigirlo evita membresías por emails no verificados.
+    // Google y las cuentas con contraseña deben verificar el email.
+    // Firebase marca email_verified=true recién cuando se abre el enlace.
     function hasVerifiedEmail() {
       return isSignedIn()
         && request.auth.token.email != null

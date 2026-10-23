@@ -3,8 +3,10 @@ import { Router } from '@angular/router';
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
   getRedirectResult,
   isSignInWithEmailLink,
+  sendEmailVerification,
   sendPasswordResetEmail,
   sendSignInLinkToEmail,
   signInWithEmailAndPassword,
@@ -20,6 +22,16 @@ import type { Firestore } from 'firebase/firestore';
 import { isFirebaseConfigured } from '../../environments/firebase.config';
 import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
 import { AccessService } from './access.service';
+
+export interface EmailAuthResult {
+  verificationRequired: boolean;
+  verificationEmailSent: boolean;
+}
+
+export interface SessionState {
+  email: string;
+  emailVerified: boolean;
+}
 
 @Injectable({
   providedIn: 'root',
@@ -83,11 +95,20 @@ export class AuthService {
     await signInWithRedirect(this.auth, this.googleProvider);
   }
 
+  /** Devuelve los métodos de acceso registrados para un correo. */
+  async getSignInMethods(email: string): Promise<string[]> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    return fetchSignInMethodsForEmail(this.auth, this.normalizeEmail(email));
+  }
+
   /** Inicia sesión con el correo y la contraseña de Firebase Auth. */
   async loginWithEmailPassword(
     email: string,
     password: string
-  ): Promise<void> {
+  ): Promise<EmailAuthResult> {
     if (!isFirebaseConfigured()) {
       throw new Error('FIREBASE_NOT_CONFIGURED');
     }
@@ -99,18 +120,39 @@ export class AuthService {
       password
     );
 
+    // Las reglas de Firestore exigen email_verified. Si todavía no verificó,
+    // se mantiene la sesión para mostrar la pantalla de verificación.
+    if (!credential.user.emailVerified) {
+      const verificationEmailSent = await this.sendVerificationEmailQuietly(
+        credential.user
+      );
+
+      return {
+        verificationRequired: true,
+        verificationEmailSent,
+      };
+    }
+
     await this.enforceAllowlist();
     await this.saveUserProfile(credential.user, 'password');
+
+    return {
+      verificationRequired: false,
+      verificationEmailSent: false,
+    };
   }
 
   /**
    * Crea la cuenta y asigna la contraseña en el primer login.
    * Si el correo ya existe, Firebase devuelve auth/email-already-in-use.
+   *
+   * La cuenta nace sin verificar, así que se envía el correo de verificación.
+   * Firestore seguirá bloqueado hasta que la persona abra ese enlace.
    */
   async registerWithEmailPassword(
     email: string,
     password: string
-  ): Promise<void> {
+  ): Promise<EmailAuthResult> {
     if (!isFirebaseConfigured()) {
       throw new Error('FIREBASE_NOT_CONFIGURED');
     }
@@ -130,8 +172,85 @@ export class AuthService {
       // El perfil no bloquea el registro.
     }
 
+    const verificationEmailSent = await this.sendVerificationEmailQuietly(
+      credential.user
+    );
+
+    if (!credential.user.emailVerified) {
+      return {
+        verificationRequired: true,
+        verificationEmailSent,
+      };
+    }
+
     await this.enforceAllowlist();
     await this.saveUserProfile(credential.user, 'password');
+
+    return {
+      verificationRequired: false,
+      verificationEmailSent,
+    };
+  }
+
+  /** Reenvía el correo de verificación de la cuenta actual. */
+  async resendVerificationEmail(): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    const user = this.auth.currentUser;
+
+    if (!user) {
+      throw new Error('NOT_AUTHENTICATED');
+    }
+
+    if (user.emailVerified) {
+      return;
+    }
+
+    await sendEmailVerification(user);
+  }
+
+  /**
+   * Recarga la cuenta y comprueba si ya verificó el correo.
+   * Fuerza un token nuevo para que Firestore reciba email_verified=true.
+   */
+  async completeEmailVerification(): Promise<boolean> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    const user = this.auth.currentUser;
+
+    if (!user) {
+      throw new Error('NOT_AUTHENTICATED');
+    }
+
+    await user.reload();
+
+    if (!user.emailVerified) {
+      return false;
+    }
+
+    await user.getIdToken(true);
+    await this.enforceAllowlist();
+    await this.saveUserProfile(user, 'password');
+
+    return true;
+  }
+
+  /** Estado de la sesión, sin tocar Firestore. */
+  async getSession(): Promise<SessionState | null> {
+    await this.auth.authStateReady();
+
+    const user = this.auth.currentUser;
+
+    return user
+      ? {
+          email: user.email ?? '',
+          emailVerified: user.emailVerified,
+        }
+      : null;
   }
 
   /** Envía el correo para restablecer la contraseña. */
@@ -315,6 +434,16 @@ export class AuthService {
         'No se pudo guardar el perfil del usuario en Firestore.',
         error
       );
+    }
+  }
+
+  private async sendVerificationEmailQuietly(user: User): Promise<boolean> {
+    try {
+      await sendEmailVerification(user);
+      return true;
+    } catch (error) {
+      console.warn('No se pudo enviar el correo de verificación.', error);
+      return false;
     }
   }
 

@@ -8,7 +8,7 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 - Optimus UI 2.0.2 (MIT) con tema Aura, sin licencia ni registro.
 - Firebase 13: Authentication + Firestore.
 - Datos compartidos por hogar y protegidos con reglas de Firestore.
-- Build de producción y test unitario funcionando con Vitest 5.
+- Build de producción y tests unitarios (shell y login) funcionando con Vitest 5.
 - `npm audit`: 0 vulnerabilidades conocidas.
 
 ## Correcciones aplicadas
@@ -16,9 +16,10 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 | Problema | Estado |
 |---|---|
 | Contraseñas en texto plano dentro del bundle | Resuelto con Firebase Authentication. |
-| Login con usuario/contraseña | Reemplazado por Google Sign-In. |
-| Popup de Google bloqueado en móvil | Redirect automático en celular/PWA y login alternativo con correo y contraseña. |
+| Login con usuario/contraseña | Reemplazado por Firebase Authentication con correo y contraseña. |
+| Cuentas con contraseña sin correo verificado | Se exige verificación por email antes de acceder a Firestore. |
 | Usuarios sin tabla visible | Perfil en `usuarios/{uid}` (email, nombre, proveedor, último acceso); la contraseña queda en Firebase Auth, hasheada. |
+| Cuentas creadas solo con Google | Se eliminan y recrean con contraseña; la app guía el proceso. |
 | Acceso de cualquier cuenta de Google | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |
 | Configuración manual inicial del hogar | La primera cuenta crea `households/casa`; la segunda se agrega por email/UID. |
 | Dependencia de un backend externo en Render | Reemplazado por Firestore. |
@@ -31,7 +32,7 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 | PrimeNG 17 con Angular 20 y `legacy-peer-deps` | Migrado a Optimus UI 2 + Angular 22, sin workaround ni licencia. |
 | PrimeNG 22 con licencia comercial | Reemplazado por Optimus UI 2.0.2 (MIT, sin registro). |
 | Karma/Jasmine con dependencias vulnerables | Migrado a Vitest 5 + jsdom. |
-| Sin tests | Hay un test base del shell de la app. |
+| Sin tests | Hay tests del shell y del flujo de login (correo, contraseña, asignación y verificación). |
 
 ## Prioridades siguientes
 
@@ -60,7 +61,7 @@ Actualmente solo se puede borrar todo el historial.
 
 ### 4. Onboarding del hogar
 
-Hoy la primera cuenta crea el hogar automáticamente, pero la segunda se agrega a mano en Firestore.
+Hoy la primera cuenta verificada crea el hogar automáticamente, pero la segunda se agrega a mano en Firestore o por auto-join si hay lugar.
 
 - Agregar una pantalla para invitar al segundo miembro desde la app.
 - Permitir unirse con un código de invitación o aprobación del dueño.
