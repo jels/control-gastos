@@ -43,7 +43,7 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
             pButton
             type="button"
             class="w-full"
-            [disabled]="loading"
+            [disabled]="loading || emailLoading"
             (click)="loginWithGoogle()"
           >
             @if (loading) {
@@ -83,7 +83,7 @@ import { isFirebaseConfigured } from '../../../environments/firebase.config';
             type="button"
             variant="text"
             class="w-full"
-            [disabled]="loading"
+            [disabled]="loading || emailLoading"
             (click)="loginWithRedirect()"
           >
             ¿No se abre la ventana? Usar redirección
