@@ -25,7 +25,6 @@ export const appConfig: ApplicationConfig = {
     provideFirebase(),
     provideAppInitializer(async () => {
       const auth = inject(AuthService);
-      await auth.handleEmailLinkResult();
       await auth.handleRedirectResult();
     }),
   ],

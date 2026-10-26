@@ -1,9 +1,11 @@
 rules_version = '2';
 
 // Modelo de la app:
+// - Lista global de emails autorizados en config/access.allowedEmails.
 // - Perfil en usuarios/{uid} (nunca guarda contraseñas).
-// - Lista global de acceso en config/access.allowedEmails.
-// - Hogar compartido en households/{householdId}/gastos.
+// - Índice de acceso en acceso/{email} (solo indica si ya tiene contraseña).
+// - Cada cuenta tiene su propia casa en households/{uid} y sus gastos en
+//   households/{uid}/gastos. No se comparten gastos entre cuentas.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -11,48 +13,33 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Google y las cuentas con contraseña deben verificar el email.
-    // Firebase marca email_verified=true recién cuando se abre el enlace.
-    function hasVerifiedEmail() {
-      return isSignedIn()
-        && request.auth.token.email != null
-        && request.auth.token.email_verified == true;
-    }
-
     function accessConfig() {
       return get(/databases/$(database)/documents/config/access).data;
     }
 
-    // Lista global: solo estos emails pueden usar la app y tocar datos.
+    // Solo los emails de la lista pueden usar la app y tocar datos.
+    // No se exige email_verified: el login con contraseña es directo y la
+    // autorización real la define esta lista. Ver docs/FIREBASE.md.
+    // Si más adelante querés exigir verificación, agregá:
+    //   && request.auth.token.email_verified == true
     function isAllowedEmail() {
-      return hasVerifiedEmail()
-        && request.auth.token.email in accessConfig().allowedEmails;
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() in accessConfig().allowedEmails;
+    }
+
+    function isHouseholdOwner(householdId) {
+      return isAllowedEmail()
+        && request.auth.uid == householdId;
     }
 
     function householdPath(householdId) {
       return /databases/$(database)/documents/households/$(householdId);
     }
 
-    function householdExists(householdId) {
-      return exists(householdPath(householdId));
-    }
-
-    function householdData(householdId) {
-      return get(householdPath(householdId)).data;
-    }
-
-    function isHouseholdMember(householdId) {
-      return isAllowedEmail()
-        && householdExists(householdId)
-        && (
-          request.auth.uid in householdData(householdId).members
-          || request.auth.token.email in householdData(householdId).memberEmails
-        );
-    }
-
     function isValidGasto(data) {
       return data.monto is number
-        && data.monto >= 0
+        && data.monto > 0
         && data.categoria is string
         && data.categoria.size() > 0
         && data.categoria.size() <= 100
@@ -61,7 +48,11 @@ service cloud.firestore {
         && data.fecha is timestamp
         && data.fechaRegistro is timestamp
         && data.usuario is string
-        && data.usuario.size() <= 100;
+        && data.usuario.size() > 0
+        && data.usuario.size() <= 100
+        && data.usuarioUid == request.auth.uid
+        && data.usuarioEmail is string
+        && data.usuarioEmail.lower() == request.auth.token.email.lower();
     }
 
     // La lista de acceso se administra desde Firebase Console.
@@ -82,13 +73,13 @@ service cloud.firestore {
 
     // Índice mínimo para saber, antes del login, si un correo ya tiene
     // contraseña. No guarda contraseñas ni hashes; solo el estado.
-    // Se puede leer puntualmente, pero no listar ni escribir sin verificar.
+    // Se puede leer puntualmente, pero no listar.
     match /acceso/{email} {
       allow get: if true;
       allow list: if false;
-      allow write: if hasVerifiedEmail()
-        && request.auth.token.firebase.sign_in_provider == 'password'
+      allow write: if isAllowedEmail()
         && request.auth.token.email.lower() == email
+        && request.resource.data.email is string
         && request.resource.data.email.lower() == email
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.passwordSet == true
@@ -96,39 +87,32 @@ service cloud.firestore {
     }
 
     match /households/{householdId} {
-      // Permite comprobar si el hogar existe (primer login) o leerlo si ya sos miembro.
-      allow read: if hasVerifiedEmail()
-        && (!householdExists(householdId) || isHouseholdMember(householdId));
+      // Cada usuario solo puede leer/crear su propia casa (ID = UID).
+      allow read: if isHouseholdOwner(householdId);
 
-      // Un email autorizado puede crear el hogar si todavía no existe.
-      allow create: if isAllowedEmail()
-        && !householdExists(householdId)
+      allow create: if isHouseholdOwner(householdId)
+        && !exists(householdPath(householdId))
         && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.members.size() == 1
-        && request.resource.data.members[0] == request.auth.uid
-        && request.resource.data.memberEmails.size() == 1
-        && request.resource.data.memberEmails[0] == request.auth.token.email
+        && request.resource.data.ownerEmail is string
+        && request.resource.data.ownerEmail == request.auth.token.email.lower()
         && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
         && request.resource.data.createdAt is timestamp;
 
-      // Un email autorizado puede sumarse a sí mismo si el hogar tiene espacio.
-      // No puede quitar miembros ni cambiar otros campos.
-      allow update: if isAllowedEmail()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberEmails'])
-        && request.auth.uid in request.resource.data.members
-        && request.auth.token.email in request.resource.data.memberEmails
-        && request.resource.data.members.size() == resource.data.get('members', []).size() + 1
-        && request.resource.data.members.hasAll(resource.data.get('members', []))
-        && request.resource.data.memberEmails.size() == resource.data.get('memberEmails', []).size() + 1
-        && request.resource.data.memberEmails.hasAll(resource.data.get('memberEmails', []))
-        && request.resource.data.members.size() <= 2
-        && request.resource.data.memberEmails.size() <= 2;
+      // Solo se permite cambiar el nombre de la casa.
+      allow update: if isHouseholdOwner(householdId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.updatedAt is timestamp;
 
       allow delete: if false;
 
       match /gastos/{gastoId} {
-        allow read, delete: if isHouseholdMember(householdId);
-        allow create, update: if isHouseholdMember(householdId)
+        allow read, delete: if isHouseholdOwner(householdId);
+        allow create, update: if isHouseholdOwner(householdId)
           && isValidGasto(request.resource.data);
       }
     }

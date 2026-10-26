@@ -10,7 +10,7 @@ import { AuthService } from '../../services/auth.service';
 import { AccessService } from '../../services/access.service';
 import { isFirebaseConfigured } from '../../../environments/firebase.config';
 
-type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
+type LoginStep = 'email' | 'password' | 'assign';
 
 @Component({
   selector: 'app-login',
@@ -91,13 +91,6 @@ type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
                 (keyup.enter)="loginWithPassword()"
               ></p-password>
 
-              @if (allowAssign) {
-                <p class="m-0 text-600 text-sm text-center">
-                  Si es tu primera vez con este correo, usá “Asignar
-                  contraseña”.
-                </p>
-              }
-
               <button
                 pButton
                 type="button"
@@ -114,19 +107,29 @@ type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
                 }
               </button>
 
-              @if (allowAssign) {
-                <button
-                  pButton
-                  type="button"
-                  variant="outlined"
-                  class="w-full"
-                  [disabled]="emailLoading"
-                  (click)="assignPassword()"
-                >
-                  <i class="pi pi-key"></i>
-                  Asignar contraseña
-                </button>
-              }
+              <button
+                pButton
+                type="button"
+                variant="outlined"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="startAssign()"
+              >
+                <i class="pi pi-key"></i>
+                Crear contraseña
+              </button>
+
+              <button
+                pButton
+                type="button"
+                variant="text"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="forgotPassword()"
+              >
+                <i class="pi pi-question-circle"></i>
+                Olvidé mi contraseña
+              </button>
 
               <button
                 pButton
@@ -144,7 +147,8 @@ type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
           @if (step === 'assign') {
             <div class="flex flex-column gap-2">
               <p class="m-0 text-600 text-center">
-                Es la primera vez con este correo. Asigná una contraseña.
+                Creá una contraseña para tu cuenta. Si el correo ya existe con
+                Google, podés vincularla para conservar la misma cuenta.
               </p>
 
               <label for="assign-email">Correo</label>
@@ -179,8 +183,49 @@ type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
                   Guardando...
                 } @else {
                   <i class="pi pi-key"></i>
-                  Asignar contraseña
+                  Crear cuenta e ingresar
                 }
+              </button>
+
+              @if (showGoogleLink) {
+                <p class="m-0 text-600 text-sm text-center">
+                  Ese correo ya existe con Google. Para conservar la misma
+                  cuenta, vinculá una contraseña iniciando sesión con Google.
+                </p>
+
+                <button
+                  pButton
+                  type="button"
+                  variant="outlined"
+                  class="w-full"
+                  [disabled]="emailLoading"
+                  (click)="linkPasswordWithGoogle()"
+                >
+                  <i class="pi pi-google"></i>
+                  Vincular con Google y crear contraseña
+                </button>
+
+                <button
+                  pButton
+                  type="button"
+                  variant="text"
+                  class="w-full"
+                  [disabled]="emailLoading"
+                  (click)="forgotPassword()"
+                >
+                  Prefiero restablecer la contraseña
+                </button>
+              }
+
+              <button
+                pButton
+                type="button"
+                variant="text"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="goToPassword()"
+              >
+                Ya tengo contraseña
               </button>
 
               <button
@@ -196,96 +241,18 @@ type LoginStep = 'email' | 'password' | 'assign' | 'verify' | 'blocked';
             </div>
           }
 
-          @if (step === 'verify') {
-            <div class="flex flex-column gap-2">
-              <p class="m-0 font-semibold text-center">Verificá tu correo</p>
-              <p class="m-0 text-600 text-center">
-                Te enviamos un enlace a <strong>{{ email }}</strong>. Abrí el
-                enlace y después tocá “Ya verifiqué”.
-              </p>
-
-              @if (verificationEmailSent === false) {
-                <p-message severity="warn">
-                  No pudimos enviar el correo automáticamente. Usá “Reenviar
-                  correo”.
-                </p-message>
-              }
-
-              @if (infoMessage) {
-                <p-message severity="success">{{ infoMessage }}</p-message>
-              }
-
-              <button
-                pButton
-                type="button"
-                class="w-full"
-                [disabled]="emailLoading"
-                (click)="checkVerification()"
-              >
-                @if (emailLoading) {
-                  <i class="pi pi-spin pi-spinner"></i>
-                  Verificando...
-                } @else {
-                  <i class="pi pi-check"></i>
-                  Ya verifiqué
-                }
-              </button>
-
-              <button
-                pButton
-                type="button"
-                variant="outlined"
-                class="w-full"
-                [disabled]="emailLoading"
-                (click)="resendVerification()"
-              >
-                <i class="pi pi-envelope"></i>
-                Reenviar correo
-              </button>
-
-              <button
-                pButton
-                type="button"
-                variant="text"
-                class="w-full"
-                [disabled]="emailLoading"
-                (click)="resetAccount()"
-              >
-                Usar otra cuenta
-              </button>
-            </div>
-          }
-
-          @if (step === 'blocked') {
-            <p-message severity="warn">
-              Ese correo ya existe con Google y no tiene contraseña asignada.
-              Para usar contraseña, eliminá el usuario en Firebase Console →
-              Authentication → Users y volvé a intentar con “Asignar
-              contraseña”.
-            </p-message>
-
-            <button
-              pButton
-              type="button"
-              variant="outlined"
-              class="w-full"
-              [disabled]="emailLoading"
-              (click)="resetAccount()"
-            >
-              <i class="pi pi-arrow-left"></i>
-              Usar otra cuenta
-            </button>
+          @if (infoMessage) {
+            <p-message severity="info">{{ infoMessage }}</p-message>
           }
 
           @if (errorMessage) {
-            <p-message severity="error">
-              {{ errorMessage }}
-            </p-message>
+            <p-message severity="error">{{ errorMessage }}</p-message>
           }
 
           <small class="text-500 text-center">
             Solo pueden entrar las cuentas autorizadas en
-            <code>config/access</code>.
+            <code>config/access</code>. Cada cuenta tiene su propia casa y sus
+            gastos no se mezclan con los de otras cuentas.
           </small>
         </div>
       </p-card>
@@ -298,8 +265,7 @@ export class LoginComponent implements OnInit {
   password = '';
   checkingEmail = false;
   emailLoading = false;
-  allowAssign = false;
-  verificationEmailSent: boolean | null = null;
+  showGoogleLink = false;
   errorMessage = '';
   infoMessage = '';
   readonly firebaseConfigured = isFirebaseConfigured();
@@ -317,18 +283,19 @@ export class LoginComponent implements OnInit {
     if (session) {
       this.email = session.email;
 
-      if (!session.emailVerified) {
-        this.step = 'verify';
-
-        if (authError && authError !== 'EMAIL_NOT_VERIFIED') {
-          this.errorMessage = this.mapAuthError(new Error(authError));
-        }
-
-        return;
-      }
-
       try {
         await this.accessService.assertAllowed();
+
+        // Si la sesión viene de Google y todavía no tiene contraseña,
+        // se pide crearla antes de entrar al dashboard.
+        if (!this.authService.hasPasswordProvider()) {
+          this.showGoogleLink = true;
+          this.step = 'assign';
+          this.infoMessage =
+            'Tu sesión está abierta con Google y todavía no tiene contraseña. Creá una para ingresar también con correo y contraseña.';
+          return;
+        }
+
         await this.router.navigate(['/dashboard']);
       } catch (error) {
         await this.authService.signOutSilently();
@@ -373,43 +340,47 @@ export class LoginComponent implements OnInit {
 
       this.email = normalized;
       this.password = '';
+      this.showGoogleLink = false;
 
-      // Segunda verificación: ¿ya tiene contraseña o hay que asignarla?
+      // Segunda verificación: ¿ya tiene contraseña o hay que crearla?
       // El índice `acceso/{email}` evita depender de la protección contra
       // enumeración de emails de Firebase.
+      if (await this.authService.hasPasswordRecord(normalized)) {
+        this.step = 'password';
+        this.infoMessage = 'Ingresá la contraseña de tu cuenta.';
+        return;
+      }
+
+      let methods: string[] = [];
+
       try {
-        if (await this.authService.hasPasswordRecord(normalized)) {
-          this.step = 'password';
-          this.allowAssign = false;
-          return;
-        }
-
-        const methods = await this.authService.getSignInMethods(normalized);
-
-        if (methods.includes('password')) {
-          this.step = 'password';
-          this.allowAssign = false;
-        } else if (methods.includes('google.com')) {
-          this.step = 'blocked';
-          this.allowAssign = false;
-        } else {
-          this.step = 'assign';
-          this.allowAssign = false;
-        }
+        methods = await this.authService.getSignInMethods(normalized);
       } catch (error) {
-        const code = (error as { code?: string } | null)?.code ?? '';
-
-        if (code === 'auth/network-request-failed') {
+        if (this.errorCode(error) === 'auth/network-request-failed') {
           this.errorMessage = this.mapAuthError(error);
           return;
         }
 
-        // Firebase puede devolver [] o fallar por email enumeration protection.
-        // Mostramos contraseña y dejamos también la opción de asignarla.
+        // Firebase puede devolver [] o fallar por email enumeration
+        // protection. En ese caso se ofrece crear la contraseña.
+        methods = [];
+      }
+
+      if (methods.includes('password')) {
         this.step = 'password';
-        this.allowAssign = true;
-        this.errorMessage =
-          'No se pudo verificar si el correo ya tiene contraseña. Si es tu primera vez, usá “Asignar contraseña”.';
+        this.infoMessage = 'Ingresá la contraseña de tu cuenta.';
+        return;
+      }
+
+      this.step = 'assign';
+
+      if (methods.includes('google.com')) {
+        this.showGoogleLink = true;
+        this.infoMessage =
+          'Ese correo ya existe con Google y todavía no tiene contraseña. Creá una para ingresar también con correo y contraseña.';
+      } else {
+        this.infoMessage =
+          'Creá una contraseña para tu cuenta. Si ya tenías una, usá “Ya tengo contraseña”.';
       }
     } finally {
       this.checkingEmail = false;
@@ -428,21 +399,18 @@ export class LoginComponent implements OnInit {
     this.emailLoading = true;
 
     try {
-      const result = await this.authService.loginWithEmailPassword(
+      await this.authService.loginWithEmailPassword(
         this.email,
         this.password
       );
-
-      if (result.verificationRequired) {
-        this.step = 'verify';
-        this.verificationEmailSent = result.verificationEmailSent;
-        this.password = '';
-        return;
-      }
-
       await this.router.navigate(['/dashboard']);
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
+
+      if (this.isInvalidCredential(error)) {
+        this.errorMessage +=
+          ' Si todavía no creaste una contraseña, usá “Crear contraseña”. Si la olvidaste, usá “Olvidé mi contraseña”.';
+      }
     } finally {
       this.emailLoading = false;
     }
@@ -457,30 +425,70 @@ export class LoginComponent implements OnInit {
       return;
     }
 
+    // Si la sesión ya está autenticada con Google, no se puede crear otra
+    // cuenta: se vincula la contraseña a la cuenta existente.
+    if (
+      this.authService.hasGoogleProvider() &&
+      this.authService.getCurrentUserEmail().trim().toLowerCase() ===
+        this.email.trim().toLowerCase()
+    ) {
+      await this.linkPasswordWithGoogle();
+      return;
+    }
+
     this.emailLoading = true;
 
     try {
-      const result = await this.authService.registerWithEmailPassword(
+      await this.authService.registerWithEmailPassword(
         this.email,
         this.password
       );
-
-      if (result.verificationRequired) {
-        this.step = 'verify';
-        this.verificationEmailSent = result.verificationEmailSent;
-        this.password = '';
-        return;
-      }
-
       await this.router.navigate(['/dashboard']);
     } catch (error) {
-      const code = (error as { code?: string } | null)?.code ?? '';
+      const code = this.errorCode(error);
 
       if (code === 'auth/email-already-in-use') {
-        this.step = 'password';
-        this.allowAssign = false;
-        this.errorMessage =
-          'Ese correo ya tiene una cuenta. Si ya tiene contraseña, ingresala. Si es una cuenta de Google, eliminá el usuario en Firebase Console → Authentication → Users.';
+        // Puede ser una cuenta existente cuyo índice `acceso` no está
+        // creado (por ejemplo, cuentas de la versión anterior). Si la
+        // contraseña ingresada es la correcta, se inicia sesión.
+        try {
+          await this.authService.loginWithEmailPassword(
+            this.email,
+            this.password
+          );
+          await this.router.navigate(['/dashboard']);
+          return;
+        } catch (loginError) {
+          const loginCode = this.errorCode(loginError);
+
+          if (
+            loginCode !== 'auth/invalid-credential' &&
+            loginCode !== 'auth/invalid-login-credentials' &&
+            loginCode !== 'auth/wrong-password' &&
+            loginCode !== 'auth/user-not-found'
+          ) {
+            this.errorMessage = this.mapAuthError(loginError);
+            return;
+          }
+        }
+
+        const hasPassword = await this.authService.hasPasswordRecord(
+          this.email
+        );
+
+        this.password = '';
+
+        if (hasPassword) {
+          this.step = 'password';
+          this.showGoogleLink = false;
+          this.errorMessage =
+            'Ese correo ya tiene una contraseña. Ingresala o usá “Olvidé mi contraseña”.';
+        } else {
+          this.step = 'assign';
+          this.showGoogleLink = true;
+          this.errorMessage =
+            'Ese correo ya tiene una cuenta en Firebase. Si ya tenías contraseña, usá “Ya tengo contraseña”. Si tu cuenta es de Google, vinculá una contraseña con Google o restablecela.';
+        }
       } else {
         this.errorMessage = this.mapAuthError(error);
       }
@@ -489,20 +497,22 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  async checkVerification(): Promise<void> {
+  async linkPasswordWithGoogle(): Promise<void> {
     this.errorMessage = '';
     this.infoMessage = '';
+
+    if (this.password.length < 6) {
+      this.errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
+      return;
+    }
+
     this.emailLoading = true;
 
     try {
-      const verified = await this.authService.completeEmailVerification();
-
-      if (!verified) {
-        this.errorMessage =
-          'Todavía no verificaste tu correo. Abrí el enlace que te enviamos y volvé a tocar “Ya verifiqué”.';
-        return;
-      }
-
+      await this.authService.linkPasswordWithGoogle(
+        this.email,
+        this.password
+      );
       await this.router.navigate(['/dashboard']);
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
@@ -511,20 +521,42 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  async resendVerification(): Promise<void> {
+  async forgotPassword(): Promise<void> {
     this.errorMessage = '';
     this.infoMessage = '';
+
+    if (!this.validateEmail()) {
+      return;
+    }
+
     this.emailLoading = true;
 
     try {
-      await this.authService.resendVerificationEmail();
-      this.verificationEmailSent = true;
-      this.infoMessage = 'Te enviamos otro correo de verificación.';
+      await this.authService.sendPasswordReset(this.email);
+      this.infoMessage =
+        'Si el correo tiene una cuenta con contraseña, te enviamos un enlace para restablecerla. Revisá también spam.';
     } catch (error) {
       this.errorMessage = this.mapAuthError(error);
     } finally {
       this.emailLoading = false;
     }
+  }
+
+  startAssign(): void {
+    this.errorMessage = '';
+    this.infoMessage =
+      'Creá una contraseña para este correo. Si la cuenta ya existe con Google, podés vincularla.';
+    this.password = '';
+    this.showGoogleLink = false;
+    this.step = 'assign';
+  }
+
+  goToPassword(): void {
+    this.errorMessage = '';
+    this.infoMessage = 'Ingresá la contraseña de tu cuenta.';
+    this.password = '';
+    this.showGoogleLink = false;
+    this.step = 'password';
   }
 
   async resetAccount(): Promise<void> {
@@ -537,8 +569,7 @@ export class LoginComponent implements OnInit {
     this.step = 'email';
     this.email = '';
     this.password = '';
-    this.allowAssign = false;
-    this.verificationEmailSent = null;
+    this.showGoogleLink = false;
     this.errorMessage = '';
     this.infoMessage = '';
   }
@@ -554,10 +585,25 @@ export class LoginComponent implements OnInit {
     return true;
   }
 
+  private isInvalidCredential(error: unknown): boolean {
+    const code = this.errorCode(error);
+    return (
+      code === 'auth/invalid-credential' ||
+      code === 'auth/invalid-login-credentials' ||
+      code === 'auth/wrong-password' ||
+      code === 'auth/user-not-found'
+    );
+  }
+
+  private errorCode(error: unknown): string {
+    return (
+      (error as { code?: string } | null)?.code ??
+      (error instanceof Error ? error.message : '')
+    );
+  }
+
   private mapAuthError(error: unknown): string {
-    const firebaseCode = (error as { code?: string } | null)?.code ?? '';
-    const customMessage = error instanceof Error ? error.message : '';
-    const key = firebaseCode || customMessage;
+    const key = this.errorCode(error);
 
     if (key === 'FIREBASE_NOT_CONFIGURED') {
       return 'Firebase no está configurado. Completá src/environments/firebase.config.ts.';
@@ -570,30 +616,48 @@ export class LoginComponent implements OnInit {
         'Falta la lista de acceso en Firestore. Creá el documento config/access con el campo allowedEmails.',
       ACCESS_CONFIG_INVALID:
         'La lista de acceso está mal configurada. allowedEmails debe ser un array de correos.',
+      ACCESS_CONFIG_CASE:
+        'El correo está en la lista pero escrito con mayúsculas. Guardalo en minúsculas en config/access.allowedEmails.',
       ACCESS_CHECK_FAILED:
-        'No se pudo verificar la lista de acceso. Revisá que firestore.rules esté publicado y tu conexión.',
+        'No se pudo leer la lista de acceso. Publicá las reglas de firestore.rules en Firebase Console y revisá tu conexión.',
       NOT_AUTHENTICATED: 'No hay una sesión activa. Intentá de nuevo.',
-      EMAIL_NOT_VERIFIED:
-        'Verificá tu correo antes de entrar. Abrí el enlace que te enviamos.',
+      GOOGLE_EMAIL_MISMATCH:
+        'La cuenta de Google elegida no coincide con el correo ingresado. Volvé a intentar con el correo correcto.',
+      GOOGLE_POPUP_BLOCKED:
+        'El navegador bloqueó la ventana de Google. Permití las ventanas emergentes o usá “Olvidé mi contraseña”.',
       'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+      'auth/invalid-login-credentials':
+        'Correo o contraseña incorrectos.',
       'auth/wrong-password': 'Correo o contraseña incorrectos.',
       'auth/user-not-found':
-        'No existe una cuenta con ese correo. Volvé a empezar y usá “Asignar contraseña”.',
+        'No existe una cuenta con ese correo. Volvé a empezar y usá “Crear contraseña”.',
       'auth/email-already-in-use':
-        'Ese correo ya tiene una cuenta. Si es una cuenta de Google, eliminala en Firebase Console → Authentication → Users y volvé a asignar la contraseña; si ya tiene contraseña, usá “Ingresar”.',
+        'Ese correo ya tiene una cuenta en Firebase. Si usás Google, vinculá una contraseña; si ya tenías contraseña, ingresala o restablecela.',
+      'auth/credential-already-in-use':
+        'Ese correo ya tiene una contraseña asignada. Ingresala o usá “Olvidé mi contraseña”.',
+      'auth/provider-already-linked':
+        'Ese correo ya tiene una contraseña vinculada. Ingresala.',
+      'auth/account-exists-with-different-credential':
+        'Ese correo ya está registrado con otro método de acceso. Ingresá con contraseña o restablecela.',
       'auth/weak-password':
         'La contraseña debe tener al menos 6 caracteres.',
       'auth/user-disabled': 'Esta cuenta está deshabilitada.',
       'auth/requires-recent-login':
         'Volvé a iniciar sesión para completar esta acción.',
       'auth/operation-not-allowed':
-        'Habilitá Email/Password en Firebase Authentication.',
+        'Habilitá Email/Password en Firebase Authentication. Si necesitás vincular con Google, habilitá también el proveedor Google.',
       'auth/unauthorized-domain':
         'Este dominio no está autorizado en Firebase Authentication. Agregalo en Authentication → Settings → Authorized domains.',
+      'auth/popup-closed-by-user':
+        'Cerraste la ventana de Google antes de completar el acceso.',
+      'auth/cancelled-popup-request':
+        'Se canceló la ventana de Google. Volvé a intentar.',
       'auth/network-request-failed':
         'Sin conexión. Verificá tu conexión a internet.',
       unavailable:
         'Sin conexión con Firestore. Verificá tu conexión a internet.',
+      'permission-denied':
+        'Firestore rechazó la operación. Publicá firestore.rules y verificá que tu correo esté en config/access.allowedEmails.',
       'auth/internal-error':
         'Firebase devolvió un error interno. Intentá de nuevo.',
       'auth/invalid-email': 'El correo electrónico no es válido.',

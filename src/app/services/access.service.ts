@@ -30,7 +30,19 @@ export class AccessService {
     const normalized = email.trim().toLowerCase();
     const allowedEmails = await this.getAllowedEmails();
 
-    return allowedEmails.includes(normalized);
+    if (allowedEmails.includes(normalized)) {
+      return true;
+    }
+
+    if (
+      allowedEmails.some(
+        (allowed) => allowed.toLowerCase() === normalized
+      )
+    ) {
+      throw new Error('ACCESS_CONFIG_CASE');
+    }
+
+    return false;
   }
 
   /** Comprueba el correo de la sesión actual y exige autenticación. */
@@ -59,6 +71,10 @@ export class AccessService {
       snapshot = await getDoc(doc(this.firestore, 'config', 'access'));
     } catch (error) {
       if ((error as { code?: string } | null)?.code === 'permission-denied') {
+        console.error(
+          'Firestore rechazó la lectura de config/access. Publicá firestore.rules (allow get: if true) y volvé a intentar.',
+          error
+        );
         throw new Error('ACCESS_CHECK_FAILED');
       }
 
@@ -75,8 +91,10 @@ export class AccessService {
       throw new Error('ACCESS_CONFIG_INVALID');
     }
 
+    // Se comparan literalmente con el email del token de Firebase, que
+    // siempre llega en minúsculas. La lista debe guardarse en minúsculas.
     return allowed
       .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim().toLowerCase());
+      .map((item) => item.trim());
   }
 }

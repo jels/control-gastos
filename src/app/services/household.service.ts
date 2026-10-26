@@ -1,12 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import {
-  arrayUnion,
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import type {
   DocumentData,
   DocumentReference,
@@ -14,24 +7,20 @@ import type {
   Firestore,
 } from 'firebase/firestore';
 import type { Auth } from 'firebase/auth';
-import { environment } from '../../environments/environment';
 import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
-
-export class HouseholdAccessError extends Error {
-  constructor(
-    readonly email: string,
-    readonly uid: string
-  ) {
-    super('Tu cuenta no tiene acceso al hogar.');
-    this.name = 'HouseholdAccessError';
-  }
-}
 
 export interface HouseholdInfo {
   id: string;
   name: string;
 }
 
+/**
+ * Cada cuenta tiene su propia casa.
+ *
+ * El documento se identifica con el UID del usuario (`households/{uid}`) y
+ * los gastos viven en `households/{uid}/gastos`. No hay miembros compartidos:
+ * una cuenta nunca puede leer ni fusionar los gastos de otra.
+ */
 @Injectable({
   providedIn: 'root',
 })
@@ -40,11 +29,8 @@ export class HouseholdService {
   private readonly auth: Auth = inject(FIREBASE_AUTH);
 
   /**
-   * Garantiza que el documento del hogar exista.
-   *
-   * - Si no existe, lo crea con el usuario actual como único miembro.
-   * - Si existe y el usuario es miembro, lo devuelve.
-   * - Si existe y el usuario no es miembro, lanza HouseholdAccessError.
+   * Garantiza que la casa privada del usuario actual exista.
+   * Si todavía no existe, la crea con su UID como dueño.
    */
   async ensureHousehold(): Promise<HouseholdInfo> {
     const user = this.auth.currentUser;
@@ -53,71 +39,71 @@ export class HouseholdService {
       throw new Error('NOT_AUTHENTICATED');
     }
 
-    const email = user.email ?? '';
     const uid = user.uid;
-    const householdRef = doc(
-      this.firestore,
-      'households',
-      environment.householdId
-    );
-
-    let snapshot: DocumentSnapshot<DocumentData>;
-
-    try {
-      snapshot = await getDoc(householdRef);
-    } catch (error) {
-      if (this.isPermissionDenied(error)) {
-        const joined = await this.tryJoin(householdRef, email, uid);
-
-        if (joined) {
-          return joined;
-        }
-
-        throw new HouseholdAccessError(email, uid);
-      }
-
-      throw error;
-    }
+    const email = (user.email ?? '').trim().toLowerCase();
+    const householdRef = doc(this.firestore, 'households', uid);
+    const snapshot = await getDoc(householdRef);
 
     if (snapshot.exists()) {
-      return this.toHousehold(snapshot.data());
+      return this.toHousehold(uid, snapshot.data());
     }
+
+    const name = this.householdName();
 
     try {
       await setDoc(householdRef, {
-        name: 'Casa',
+        name,
         ownerUid: uid,
-        members: [uid],
-        memberEmails: email ? [email] : [],
+        ownerEmail: email,
         createdAt: serverTimestamp(),
       });
 
-      return {
-        id: environment.householdId,
-        name: 'Casa',
-      };
+      return { id: uid, name };
     } catch (error) {
-      if (this.isAlreadyExists(error) || this.isPermissionDenied(error)) {
-        const retry = await this.tryRead(householdRef);
+      // Si otra pestaña la creó al mismo tiempo, se reutiliza.
+      const retry = await this.tryRead(householdRef);
 
-        if (retry?.exists()) {
-          return this.toHousehold(retry.data());
-        }
-
-        throw new HouseholdAccessError(email, uid);
+      if (retry?.exists()) {
+        return this.toHousehold(uid, retry.data());
       }
 
       throw error;
     }
   }
 
-  getCurrentIdentity(): { email: string; uid: string } {
+  /** Identidad que se muestra y se guarda en cada gasto. */
+  getCurrentIdentity(): { uid: string; email: string; name: string } {
     const user = this.auth.currentUser;
+    const email = user?.email ?? '';
 
     return {
-      email: user?.email ?? '',
       uid: user?.uid ?? '',
+      email,
+      name:
+        user?.displayName?.trim() ||
+        this.nameFromEmail(email) ||
+        email ||
+        'Usuario',
     };
+  }
+
+  private nameFromEmail(email: string): string {
+    const local = email.split('@')[0]?.trim() ?? '';
+
+    if (!local) {
+      return '';
+    }
+
+    return local
+      .replace(/[._-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  private householdName(): string {
+    const identity = this.getCurrentIdentity();
+    return `Casa de ${identity.name}`.slice(0, 100);
   }
 
   private async tryRead(
@@ -134,49 +120,18 @@ export class HouseholdService {
     }
   }
 
-  private async tryJoin(
-    reference: DocumentReference<DocumentData>,
-    email: string,
-    uid: string
-  ): Promise<HouseholdInfo | null> {
-    if (!email) {
-      return null;
+  private toHousehold(householdId: string, data: DocumentData): HouseholdInfo {
+    if (data['ownerUid'] !== householdId) {
+      throw new Error('HOUSEHOLD_OWNER_MISMATCH');
     }
 
-    try {
-      await updateDoc(reference, {
-        members: arrayUnion(uid),
-        memberEmails: arrayUnion(email),
-      });
-
-      const snapshot = await getDoc(reference);
-
-      return snapshot.exists() ? this.toHousehold(snapshot.data()) : null;
-    } catch (error) {
-      if (this.isPermissionDenied(error) || this.isNotFound(error)) {
-        return null;
-      }
-
-      throw error;
-    }
-  }
-
-  private toHousehold(data: DocumentData): HouseholdInfo {
     return {
-      id: environment.householdId,
-      name: typeof data['name'] === 'string' ? data['name'] : 'Casa',
+      id: householdId,
+      name: typeof data['name'] === 'string' ? data['name'] : 'Mi casa',
     };
   }
 
   private isPermissionDenied(error: unknown): boolean {
     return (error as { code?: string } | null)?.code === 'permission-denied';
-  }
-
-  private isAlreadyExists(error: unknown): boolean {
-    return (error as { code?: string } | null)?.code === 'already-exists';
-  }
-
-  private isNotFound(error: unknown): boolean {
-    return (error as { code?: string } | null)?.code === 'not-found';
   }
 }

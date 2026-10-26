@@ -1,8 +1,8 @@
 # Control de Gastos
 
-Aplicación web para registrar y compartir las entradas y salidas de dinero de un hogar.
+Aplicación web para registrar entradas y salidas de dinero. **Cada cuenta tiene su propia casa y sus gastos privados**: no se comparten ni se fusionan datos entre correos distintos.
 
-Dos personas pueden iniciar sesión con correo y contraseña y ver el mismo historial. Cada movimiento guarda quién lo cargó.
+El login valida primero el correo contra una lista de acceso, después pide la contraseña (o la crea si es la primera vez) y muestra claramente qué persona está usando la cuenta. Cada movimiento guarda el nombre, el email y el UID de quien lo cargó.
 
 ## Stack
 
@@ -27,21 +27,46 @@ npm start
 Antes de usar la app:
 
 1. Completá `src/environments/firebase.config.ts` con la configuración de tu proyecto Firebase.
-2. Habilitá en Firebase Authentication: **Email/Password**. Google es opcional y la pantalla de login actual no lo muestra.
-3. Creá en Firestore el documento `config/access` con el campo `allowedEmails` (array) y los correos autorizados. La app lo valida antes de pedir la contraseña.
-4. Publicá las reglas de `firestore.rules`. Exigen que el correo esté verificado y autorizado.
+2. Habilitá en Firebase Authentication: **Email/Password**.
+3. Creá en Firestore el documento `config/access` con el campo `allowedEmails` (array de correos **en minúsculas**). La app lo valida antes de pedir la contraseña.
+4. Publicá las reglas de `firestore.rules`. La app necesita que `config/access` se pueda leer puntualmente antes del login.
 5. Seguí la guía completa: **[docs/FIREBASE.md](docs/FIREBASE.md)**.
 
-La guía explica cómo:
+> **Importante:** si el login muestra “No se pudo leer la lista de acceso”, las reglas publicadas no están permitiendo leer `config/access` antes del login. Publicá la versión de `firestore.rules` de este repositorio.
 
-- Crear el proyecto Firebase.
-- Habilitar el acceso con correo y contraseña.
-- Verificar el correo de cada cuenta nueva.
-- Crear Firestore y el documento `households/casa` (la primera cuenta lo crea sola).
-- Agregar el email de la segunda persona a `memberEmails`.
-- Publicar las reglas de seguridad.
-- Migrar los datos del backend anterior.
-- Acceder a los datos desde la consola o con el Admin SDK.
+## Flujo de acceso
+
+1. La persona escribe su correo y toca **Ingresar**.
+2. La app lee `config/access.allowedEmails`:
+   - Si el correo **no está autorizado**, muestra la alerta y no avanza.
+   - Si está autorizado, continúa.
+3. La app comprueba `acceso/{email}`:
+   - Si ya tiene contraseña, muestra el campo **Contraseña**.
+   - Si no tiene contraseña, muestra **Crear cuenta e ingresar** para asignarla.
+4. Si el correo ya existe en Firebase con Google y todavía no tiene contraseña, se ofrece **Vincular con Google y crear contraseña** para conservar el mismo UID.
+5. Al entrar, el dashboard muestra **“Estás usando la cuenta de …”** y cada gasto queda registrado con el nombre, email y UID de la cuenta.
+
+La contraseña **nunca** se guarda en Firestore: la administra Firebase Authentication. En `acceso/{email}` solo se guarda el estado `passwordSet`.
+
+## Modelo de datos
+
+```text
+usuarios/{uid}
+  email, displayName, provider, passwordSet, emailVerified, householdId, lastLogin
+
+acceso/{email}
+  email, uid, passwordSet, updatedAt
+
+households/{uid}
+  name, ownerUid, ownerEmail, createdAt
+  gastos/{gastoId}
+    fecha, tipoOperacion, categoria, monto,
+    usuario, usuarioUid, usuarioEmail, fechaRegistro
+```
+
+- `households/{uid}` es privada: el ID es el UID de la cuenta y las reglas solo permiten acceder al dueño.
+- No hay `members` ni `memberEmails`: no existe la fusión de gastos entre cuentas.
+- `config/access.allowedEmails` es la única lista global de autorización.
 
 ## Scripts
 
@@ -52,17 +77,32 @@ npm test         # tests con Vitest
 npm run watch    # build en modo watch
 ```
 
+Para publicar las reglas:
+
+```bash
+npm run deploy:rules
+```
+
+O, si preferís la CLI directamente:
+
+```bash
+npx firebase-tools login
+npx firebase-tools deploy --only firestore:rules
+```
+
+O pegá el contenido de `firestore.rules` en **Firebase Console → Firestore Database → Reglas → Publicar**.
+
 ## Estructura
 
 ```text
 src/
   app/
     components/
-      dashboard/     # historial, totales y carga de movimientos
-      login/         # login con Firebase Auth
+      dashboard/     # historial privado, totales y carga de movimientos
+      login/         # login con correo y contraseña
     guards/          # protección de rutas
     models/          # modelo Gasto
-    services/        # AuthService y StorageService
+    services/        # AuthService, AccessService, HouseholdService y StorageService
     app.config.ts    # Firebase, Optimus UI y router
     firebase.providers.ts
   environments/
@@ -74,23 +114,15 @@ firestore.indexes.json
 firebase.json
 ```
 
-## Modelo de datos
-
-```text
-households/{householdId}/gastos/{gastoId}
-```
-
-Pueden leer y escribir los UID incluidos en `households/{householdId}.members` y los emails verificados incluidos en `memberEmails`. La configuración está en `src/environments/environment.ts` (`householdId: 'casa'`).
-
 ## Notas
 
-- **Login en dos pasos:** primero solo el correo y **Ingresar**. La app valida que esté en `config/access.allowedEmails`; si no está, no avanza. Si está autorizado y tiene contraseña, aparece el correo bloqueado, el campo **Contraseña** y **Ingresar** / **Usar otra cuenta**. Si no tiene contraseña, aparece **Asignar contraseña**. **Usar otra cuenta** cierra la sesión y vuelve al inicio vacío.
-- **Verificación de correo:** al asignar una contraseña, Firebase envía un enlace de verificación. Hasta abrirlo, las reglas de Firestore bloquean el acceso. La app muestra **Ya verifiqué** y **Reenviar correo**.
-- **La contraseña no se guarda en Firestore**: Firebase Authentication la almacena hasheada. En `usuarios/{uid}` se guarda el perfil (email, nombre, proveedor, `passwordSet`, `emailVerified`, `householdId` y último acceso), nunca la contraseña. La colección `acceso/{email}` solo indica si el correo ya tiene contraseña para poder decidir el paso del login.
-- **Lista de acceso global:** solo los emails de `config/access.allowedEmails` pueden usar la app. Se valida antes de pedir la contraseña y se vuelve a validar después del login; las reglas también bloquean los datos al resto. La app también consulta `acceso/{email}` para saber si ya hay contraseña.
-- **Primer ingreso y hogar:** la primera cuenta autorizada y verificada crea `households/casa` automáticamente. Para sumar a otra persona, agregá su email a `config/access.allowedEmails`; si hay lugar, la app la suma al hogar sola.
-- **Optimus UI es MIT**: no requiere licencia, registro ni clave. Es la alternativa comunitaria compatible con la API de PrimeNG 22.
+- **Cada cuenta, su casa:** los datos se guardan en `households/{uid}/gastos`. Dos correos distintos no ven ni mezclan sus gastos.
+- **Identidad visible:** el dashboard muestra el nombre y el email de la sesión; el gasto guarda `usuario`, `usuarioUid` y `usuarioEmail`.
+- **Lista de acceso:** se edita en Firestore, en `config/access.allowedEmails`. Debe contener correos en minúsculas.
+- **Índice de contraseñas:** `acceso/{email}` permite decidir si hay que pedir contraseña incluso con la protección contra enumeración de emails de Firebase activada. No contiene contraseñas ni hashes.
+- **Verificación de correo:** se envía un enlace como recomendación de seguridad, pero **no bloquea el acceso**. El dashboard muestra un aviso mientras el correo no esté verificado.
+- **Datos anteriores:** los documentos de la versión compartida (`households/casa`) no se borran, pero la app nueva ya no los lee. Para conservarlos, exportá un JSON antes de migrar e importalo con el botón **Importar JSON**, o copiá los documentos con el Admin SDK. Ver [docs/FIREBASE.md](docs/FIREBASE.md).
+- **Optimus UI es MIT**: no requiere licencia, registro ni clave.
 - **AngularFire no está instalado**: su versión estable apunta a Angular 20 y todavía no hay una estable para Angular 22. La integración usa `firebase/app`, `firebase/auth` y `firebase/firestore`.
-- **PrimeFlex** se mantiene para las clases utilitarias. Optimus UI recomienda Tailwind; la migración es opcional con `ng generate @openng/optimus-ui:migrate-from-primeflex`.
 - Los datos se guardan en Firestore, no en `localStorage`.
 - La app mantiene una caché offline de Firestore y sincroniza al recuperar conexión.

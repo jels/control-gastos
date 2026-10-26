@@ -1,16 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import {
+  EmailAuthProvider,
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
   fetchSignInMethodsForEmail,
   getRedirectResult,
-  isSignInWithEmailLink,
+  linkWithCredential,
   sendEmailVerification,
   sendPasswordResetEmail,
-  sendSignInLinkToEmail,
   signInWithEmailAndPassword,
-  signInWithEmailLink,
   signInWithPopup,
   signInWithRedirect,
   signOut,
@@ -23,14 +22,17 @@ import { isFirebaseConfigured } from '../../environments/firebase.config';
 import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
 import { AccessService } from './access.service';
 
-export interface EmailAuthResult {
-  verificationRequired: boolean;
-  verificationEmailSent: boolean;
+export interface SessionState {
+  uid: string;
+  email: string;
+  displayName: string;
+  emailVerified: boolean;
 }
 
-export interface SessionState {
+export interface UserIdentity {
+  uid: string;
   email: string;
-  emailVerified: boolean;
+  name: string;
 }
 
 @Injectable({
@@ -43,6 +45,7 @@ export class AuthService {
   private readonly accessService = inject(AccessService);
   private readonly googleProvider = new GoogleAuthProvider();
   private authError = '';
+  private passwordLinked = false;
 
   constructor() {
     this.googleProvider.setCustomParameters({
@@ -70,7 +73,7 @@ export class AuthService {
     try {
       const credential = await signInWithPopup(this.auth, this.googleProvider);
       await this.enforceAllowlist();
-      await this.saveUserProfile(credential.user, 'google.com');
+      await this.saveUserProfile(credential.user);
     } catch (error) {
       const code = (error as { code?: string } | null)?.code;
 
@@ -108,7 +111,7 @@ export class AuthService {
   async loginWithEmailPassword(
     email: string,
     password: string
-  ): Promise<EmailAuthResult> {
+  ): Promise<void> {
     if (!isFirebaseConfigured()) {
       throw new Error('FIREBASE_NOT_CONFIGURED');
     }
@@ -120,76 +123,111 @@ export class AuthService {
       password
     );
 
-    // Las reglas de Firestore exigen email_verified. Si todavía no verificó,
-    // se mantiene la sesión para mostrar la pantalla de verificación.
-    if (!credential.user.emailVerified) {
-      const verificationEmailSent = await this.sendVerificationEmailQuietly(
-        credential.user
-      );
-
-      return {
-        verificationRequired: true,
-        verificationEmailSent,
-      };
-    }
-
     await this.enforceAllowlist();
-    await this.saveUserProfile(credential.user, 'password');
-
-    return {
-      verificationRequired: false,
-      verificationEmailSent: false,
-    };
+    await this.saveUserProfile(credential.user);
+    this.passwordLinked = true;
   }
 
   /**
    * Crea la cuenta y asigna la contraseña en el primer login.
    * Si el correo ya existe, Firebase devuelve auth/email-already-in-use.
    *
-   * La cuenta nace sin verificar, así que se envía el correo de verificación.
-   * Firestore seguirá bloqueado hasta que la persona abra ese enlace.
+   * La cuenta se puede usar de inmediato. Además se envía un correo de
+   * verificación como recomendación de seguridad, pero no bloquea el acceso.
    */
   async registerWithEmailPassword(
     email: string,
     password: string
-  ): Promise<EmailAuthResult> {
+  ): Promise<void> {
     if (!isFirebaseConfigured()) {
       throw new Error('FIREBASE_NOT_CONFIGURED');
     }
 
     const normalized = this.normalizeEmail(email);
+    await this.assertEmailAllowed(normalized);
+
     const credential = await createUserWithEmailAndPassword(
       this.auth,
       normalized,
       password
     );
 
+    await this.saveUserProfile(credential.user);
+    await this.savePasswordRecord(credential.user);
+    await this.sendVerificationEmailQuietly(credential.user);
+    this.passwordLinked = true;
+  }
+
+  /**
+   * Vincula una contraseña a una cuenta que ya existe con Google.
+   *
+   * Firebase no permite asignar contraseña a una cuenta federada sin
+   * autenticarse primero con Google. Este flujo hace eso y conserva el
+   * mismo UID, por lo que la casa y los gastos no se pierden.
+   */
+  async linkPasswordWithGoogle(
+    email: string,
+    password: string
+  ): Promise<void> {
+    if (!isFirebaseConfigured()) {
+      throw new Error('FIREBASE_NOT_CONFIGURED');
+    }
+
+    const normalized = this.normalizeEmail(email);
+    await this.assertEmailAllowed(normalized);
+
+    let user = this.auth.currentUser;
+    const alreadySignedInWithGoogle =
+      !!user &&
+      this.normalizeEmail(user.email ?? '') === normalized &&
+      user.providerData.some(
+        (provider) => provider.providerId === 'google.com'
+      );
+
+    if (!alreadySignedInWithGoogle) {
+      try {
+        const credential = await signInWithPopup(
+          this.auth,
+          this.googleProvider
+        );
+        user = credential.user;
+      } catch (error) {
+        const code = (error as { code?: string } | null)?.code;
+
+        if (
+          code === 'auth/popup-blocked' ||
+          code === 'auth/operation-not-supported-in-this-environment'
+        ) {
+          throw new Error('GOOGLE_POPUP_BLOCKED');
+        }
+
+        throw error;
+      }
+    }
+
+    if (!user) {
+      throw new Error('NOT_AUTHENTICATED');
+    }
+
+    if (this.normalizeEmail(user.email ?? '') !== normalized) {
+      await this.signOutSilently();
+      throw new Error('GOOGLE_EMAIL_MISMATCH');
+    }
+
     try {
-      await updateProfile(credential.user, {
-        displayName: normalized.split('@')[0],
-      });
-    } catch {
-      // El perfil no bloquea el registro.
+      const linked = await linkWithCredential(
+        user,
+        EmailAuthProvider.credential(normalized, password)
+      );
+
+      await this.enforceAllowlist();
+      await this.saveUserProfile(linked.user);
+      await this.savePasswordRecord(linked.user);
+      this.passwordLinked = true;
+    } catch (error) {
+      await this.signOutSilently();
+      throw error;
     }
-
-    const verificationEmailSent = await this.sendVerificationEmailQuietly(
-      credential.user
-    );
-
-    if (!credential.user.emailVerified) {
-      return {
-        verificationRequired: true,
-        verificationEmailSent,
-      };
-    }
-
-    await this.enforceAllowlist();
-    await this.saveUserProfile(credential.user, 'password');
-
-    return {
-      verificationRequired: false,
-      verificationEmailSent,
-    };
   }
 
   /** Reenvía el correo de verificación de la cuenta actual. */
@@ -208,14 +246,14 @@ export class AuthService {
       return;
     }
 
-    await sendEmailVerification(user);
+    await sendEmailVerification(user, this.verificationSettings());
   }
 
   /**
    * Recarga la cuenta y comprueba si ya verificó el correo.
-   * Fuerza un token nuevo para que Firestore reciba email_verified=true.
+   * La verificación es opcional: no bloquea el uso de la app.
    */
-  async completeEmailVerification(): Promise<boolean> {
+  async refreshEmailVerification(): Promise<boolean> {
     if (!isFirebaseConfigured()) {
       throw new Error('FIREBASE_NOT_CONFIGURED');
     }
@@ -233,8 +271,7 @@ export class AuthService {
     }
 
     await user.getIdToken(true);
-    await this.enforceAllowlist();
-    await this.saveUserProfile(user, 'password');
+    await this.saveUserProfile(user);
 
     return true;
   }
@@ -269,7 +306,13 @@ export class AuthService {
 
     return user
       ? {
+          uid: user.uid,
           email: user.email ?? '',
+          displayName:
+            user.displayName?.trim() ||
+            this.nameFromEmail(user.email ?? '') ||
+            user.email?.trim() ||
+            '',
           emailVerified: user.emailVerified,
         }
       : null;
@@ -282,76 +325,6 @@ export class AuthService {
     }
 
     await sendPasswordResetEmail(this.auth, this.normalizeEmail(email));
-  }
-
-  /**
-   * Envía un enlace mágico al email indicado.
-   * Requiere habilitar Email/Password + Email link en Firebase Authentication.
-   */
-  async sendEmailLink(email: string): Promise<void> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    const normalized = email.trim().toLowerCase();
-    const continueUrl = `${window.location.origin}/login?email=${encodeURIComponent(
-      normalized
-    )}`;
-
-    await sendSignInLinkToEmail(this.auth, normalized, {
-      url: continueUrl,
-      handleCodeInApp: true,
-    });
-
-    localStorage.setItem('emailForSignIn', normalized);
-  }
-
-  /**
-   * Completa el login si la URL actual es un enlace mágico de Firebase.
-   * Devuelve true si procesó un enlace.
-   */
-  async handleEmailLinkResult(): Promise<boolean> {
-    if (!isFirebaseConfigured()) {
-      return false;
-    }
-
-    const href = window.location.href;
-
-    if (!isSignInWithEmailLink(this.auth, href)) {
-      return false;
-    }
-
-    const url = new URL(href);
-    let email =
-      url.searchParams.get('email')?.trim().toLowerCase() ||
-      localStorage.getItem('emailForSignIn') ||
-      '';
-
-    if (!email) {
-      email =
-        window
-          .prompt('Ingresá el email con el que pediste el enlace')
-          ?.trim()
-          .toLowerCase() ?? '';
-    }
-
-    if (!email) {
-      this.setAuthError('EMAIL_FOR_SIGN_IN_REQUIRED');
-      return false;
-    }
-
-    try {
-      await signInWithEmailLink(this.auth, email, href);
-      localStorage.removeItem('emailForSignIn');
-      await this.enforceAllowlist();
-      return true;
-    } catch (error) {
-      await this.signOutSilently();
-      this.setAuthError(this.errorCode(error));
-      return false;
-    } finally {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
   }
 
   /** Completa un login con redirect al volver a la app. */
@@ -369,7 +342,7 @@ export class AuthService {
 
       try {
         await this.accessService.assertAllowed();
-        await this.saveUserProfile(result.user, 'google.com');
+        await this.saveUserProfile(result.user);
       } catch (error) {
         await this.signOutSilently();
         this.setAuthError(
@@ -388,6 +361,7 @@ export class AuthService {
   }
 
   async signOutSilently(): Promise<void> {
+    this.passwordLinked = false;
     await signOut(this.auth);
   }
 
@@ -410,7 +384,7 @@ export class AuthService {
     return this.auth.currentUser !== null;
   }
 
-  /** Deja registrado en el perfil a qué hogar pertenece la cuenta. */
+  /** Deja registrado en el perfil a qué casa pertenece la cuenta. */
   async saveHouseholdAssignment(householdId: string): Promise<void> {
     const user = this.auth.currentUser;
 
@@ -426,15 +400,26 @@ export class AuthService {
       );
     } catch (error) {
       console.warn(
-        'No se pudo guardar el hogar del usuario en Firestore.',
+        'No se pudo guardar la casa del usuario en Firestore.',
         error
       );
     }
   }
 
+  /** Nombre visible de la persona que está usando la cuenta. */
   getCurrentUser(): string {
     const user = this.auth.currentUser;
-    return user?.displayName?.trim() || user?.email || '';
+
+    if (!user) {
+      return '';
+    }
+
+    return (
+      user.displayName?.trim() ||
+      this.nameFromEmail(user.email ?? '') ||
+      user.email ||
+      ''
+    );
   }
 
   getCurrentUserEmail(): string {
@@ -449,6 +434,40 @@ export class AuthService {
     return this.auth.currentUser?.uid ?? null;
   }
 
+  getCurrentUserEmailVerified(): boolean {
+    return this.auth.currentUser?.emailVerified ?? false;
+  }
+
+  /** Indica si la cuenta ya tiene una contraseña vinculada en Firebase Auth. */
+  hasPasswordProvider(): boolean {
+    return (
+      this.passwordLinked ||
+      (this.auth.currentUser?.providerData.some(
+        (provider) => provider.providerId === 'password'
+      ) ??
+        false)
+    );
+  }
+
+  /** Indica si la sesión actual está autenticada con Google. */
+  hasGoogleProvider(): boolean {
+    return (
+      this.auth.currentUser?.providerData.some(
+        (provider) => provider.providerId === 'google.com'
+      ) ?? false
+    );
+  }
+
+  getCurrentIdentity(): UserIdentity {
+    const user = this.auth.currentUser;
+
+    return {
+      uid: user?.uid ?? '',
+      email: user?.email ?? '',
+      name: this.getCurrentUser(),
+    };
+  }
+
   private async enforceAllowlist(): Promise<void> {
     try {
       await this.accessService.assertAllowed();
@@ -458,21 +477,33 @@ export class AuthService {
     }
   }
 
-  private async saveUserProfile(
-    user: User,
-    provider: 'password' | 'google.com'
-  ): Promise<void> {
+  private async assertEmailAllowed(email: string): Promise<void> {
+    const allowed = await this.accessService.isEmailAllowed(email);
+
+    if (!allowed) {
+      throw new Error('EMAIL_NOT_ALLOWED');
+    }
+  }
+
+  private async saveUserProfile(user: User): Promise<void> {
+    const displayName = await this.ensureDisplayName(user);
+    const provider = this.providerOf(user);
+    const profile: Record<string, unknown> = {
+      email: (user.email ?? '').trim().toLowerCase(),
+      displayName,
+      provider,
+      emailVerified: user.emailVerified,
+      lastLogin: serverTimestamp(),
+    };
+
+    if (provider === 'password') {
+      profile['passwordSet'] = true;
+    }
+
     try {
       await setDoc(
         doc(this.firestore, 'usuarios', user.uid),
-        {
-          email: user.email ?? '',
-          displayName: user.displayName ?? '',
-          provider,
-          passwordSet: provider === 'password',
-          emailVerified: user.emailVerified,
-          lastLogin: serverTimestamp(),
-        },
+        profile,
         { merge: true }
       );
     } catch (error) {
@@ -514,14 +545,64 @@ export class AuthService {
     }
   }
 
+  private async ensureDisplayName(user: User): Promise<string> {
+    const existing = user.displayName?.trim();
+
+    if (existing) {
+      return existing;
+    }
+
+    const name = this.nameFromEmail(user.email ?? '');
+
+    try {
+      await updateProfile(user, { displayName: name });
+    } catch (error) {
+      console.warn('No se pudo guardar el nombre del usuario.', error);
+    }
+
+    return name;
+  }
+
+  private nameFromEmail(email: string): string {
+    const local = email.split('@')[0]?.trim() ?? '';
+
+    if (!local) {
+      return 'Usuario';
+    }
+
+    return local
+      .replace(/[._-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  private providerOf(user: User): 'password' | 'google.com' {
+    return user.providerData.some(
+      (provider) => provider.providerId === 'password'
+    )
+      ? 'password'
+      : 'google.com';
+  }
+
   private async sendVerificationEmailQuietly(user: User): Promise<boolean> {
     try {
-      await sendEmailVerification(user);
+      await sendEmailVerification(user, this.verificationSettings());
       return true;
     } catch (error) {
       console.warn('No se pudo enviar el correo de verificación.', error);
       return false;
     }
+  }
+
+  private verificationSettings(): {
+    url: string;
+    handleCodeInApp: boolean;
+  } {
+    return {
+      url: `${window.location.origin}/login`,
+      handleCodeInApp: false,
+    };
   }
 
   private normalizeEmail(email: string): string {
@@ -543,15 +624,5 @@ export class AuthService {
       (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
     return isMobile || isIPadOS || isStandalone;
-  }
-
-  private errorCode(error: unknown): string {
-    const code = (error as { code?: string } | null)?.code;
-
-    if (code) {
-      return code;
-    }
-
-    return error instanceof Error ? error.message : 'EMAIL_LINK_FAILED';
   }
 }

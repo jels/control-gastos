@@ -18,16 +18,8 @@ export class AuthGuard implements CanActivate {
       return this.router.createUrlTree(['/login']);
     }
 
-    // Las reglas de Firestore exigen email_verified. No cerramos la sesión:
-    // el login muestra la pantalla para verificar o reenviar el correo.
-    if (!session.emailVerified) {
-      this.authService.setAuthError('EMAIL_NOT_VERIFIED');
-      return this.router.createUrlTree(['/login']);
-    }
-
     try {
       await this.accessService.assertAllowed();
-      return true;
     } catch (error) {
       const code =
         error instanceof Error ? error.message : 'ACCESS_CHECK_FAILED';
@@ -37,5 +29,13 @@ export class AuthGuard implements CanActivate {
 
       return this.router.createUrlTree(['/login']);
     }
+
+    // Una sesión de Google sin contraseña debe pasar por el login para
+    // vincular una contraseña antes de entrar al dashboard.
+    if (!this.authService.hasPasswordProvider()) {
+      return this.router.createUrlTree(['/login']);
+    }
+
+    return true;
   }
 }

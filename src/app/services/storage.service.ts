@@ -8,12 +8,11 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
   writeBatch,
 } from 'firebase/firestore';
 import type { DocumentData, Firestore } from 'firebase/firestore';
-import { environment } from '../../environments/environment';
-import { FIRESTORE } from '../firebase.providers';
+import type { Auth } from 'firebase/auth';
+import { FIREBASE_AUTH, FIRESTORE } from '../firebase.providers';
 import type { Gasto, NuevoGasto } from '../models/gasto.model';
 
 /** Firestore permite hasta 500 operaciones por batch. */
@@ -24,18 +23,62 @@ const BATCH_SIZE = 500;
 })
 export class StorageService {
   private readonly firestore: Firestore = inject(FIRESTORE);
+  private readonly auth: Auth = inject(FIREBASE_AUTH);
 
   /**
-   * Datos compartidos del hogar. La seguridad no depende de esta ruta:
-   * `firestore.rules` exige que el UID esté en `households/{id}.members`.
+   * Datos privados de la cuenta. La ruta usa el UID del usuario:
+   * `households/{uid}/gastos`. Las reglas de Firestore impiden que una
+   * cuenta lea o escriba la casa de otra.
    */
   private get gastosCollection() {
     return collection(
       this.firestore,
       'households',
-      environment.householdId,
+      this.currentUid(),
       'gastos'
     );
+  }
+
+  private currentUid(): string {
+    const user = this.auth.currentUser;
+
+    if (!user) {
+      throw new Error('NOT_AUTHENTICATED');
+    }
+
+    return user.uid;
+  }
+
+  private currentIdentity(): { uid: string; email: string; name: string } {
+    const user = this.auth.currentUser;
+
+    if (!user) {
+      throw new Error('NOT_AUTHENTICATED');
+    }
+
+    return {
+      uid: user.uid,
+      email: (user.email ?? '').trim().toLowerCase(),
+      name:
+        user.displayName?.trim() ||
+        this.nameFromEmail(user.email ?? '') ||
+        user.email ||
+        'Usuario',
+    };
+  }
+
+  private nameFromEmail(email: string): string {
+    const local = email.split('@')[0]?.trim() ?? '';
+
+    if (!local) {
+      return '';
+    }
+
+    return local
+      .replace(/[._-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
   async getGastos(): Promise<Gasto[]> {
@@ -49,9 +92,10 @@ export class StorageService {
   }
 
   async addGasto(gasto: NuevoGasto): Promise<Gasto> {
+    const identity = this.currentIdentity();
     const fecha = this.parseDate(gasto.fecha);
-    const categoria = gasto.categoria.trim();
-    const usuario = gasto.usuario.trim();
+    const categoria = gasto.categoria.trim().slice(0, 100);
+    const usuario = (gasto.usuario.trim() || identity.name).slice(0, 100);
     const monto = Number(gasto.monto);
 
     if (!categoria || !usuario || !Number.isFinite(monto) || monto <= 0) {
@@ -64,6 +108,8 @@ export class StorageService {
       categoria,
       monto,
       usuario,
+      usuarioUid: identity.uid,
+      usuarioEmail: identity.email,
       fechaRegistro: serverTimestamp(),
     });
 
@@ -74,6 +120,8 @@ export class StorageService {
       categoria,
       monto,
       usuario,
+      usuarioUid: identity.uid,
+      usuarioEmail: identity.email,
       fechaRegistro: new Date(),
     };
   }
@@ -112,6 +160,8 @@ export class StorageService {
       );
     });
 
+    const identity = this.currentIdentity();
+
     for (let index = 0; index < validos.length; index += BATCH_SIZE) {
       const batch = writeBatch(this.firestore);
 
@@ -126,9 +176,13 @@ export class StorageService {
         batch.set(doc(this.gastosCollection, documentId), {
           fecha: Timestamp.fromDate(fecha),
           tipoOperacion: gasto.tipoOperacion,
-          categoria: gasto.categoria.trim(),
+          categoria: gasto.categoria.trim().slice(0, 100),
           monto: Number(gasto.monto),
-          usuario: (gasto.usuario || 'Importado').trim(),
+          usuario: (gasto.usuario || identity.name || 'Importado')
+            .trim()
+            .slice(0, 100),
+          usuarioUid: identity.uid,
+          usuarioEmail: identity.email,
           fechaRegistro: Timestamp.fromDate(fechaRegistro),
         });
       }
@@ -176,6 +230,7 @@ export class StorageService {
       'Categoría',
       'Monto',
       'Usuario',
+      'Email usuario',
       'Fecha Registro',
     ];
 
@@ -186,6 +241,7 @@ export class StorageService {
       gasto.categoria,
       gasto.monto.toString(),
       gasto.usuario,
+      gasto.usuarioEmail ?? '',
       this.formatDateTime(gasto.fechaRegistro),
     ]);
 
@@ -287,6 +343,10 @@ export class StorageService {
       typeof montoValue === 'number' ? montoValue : Number(montoValue);
     const usuario =
       typeof data['usuario'] === 'string' ? data['usuario'] : '';
+    const usuarioUid =
+      typeof data['usuarioUid'] === 'string' ? data['usuarioUid'] : '';
+    const usuarioEmail =
+      typeof data['usuarioEmail'] === 'string' ? data['usuarioEmail'] : '';
     const fechaRegistro = data['fechaRegistro']
       ? this.parseDate(data['fechaRegistro'])
       : fecha;
@@ -298,6 +358,8 @@ export class StorageService {
       categoria,
       monto: Number.isFinite(monto) ? monto : 0,
       usuario,
+      usuarioUid,
+      usuarioEmail,
       fechaRegistro,
     };
   }

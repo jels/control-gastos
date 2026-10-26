@@ -14,15 +14,12 @@ import { ToastModule } from '@openng/optimus-ui/toast';
 import { ConfirmDialogModule } from '@openng/optimus-ui/confirmdialog';
 import { FileUploadModule } from '@openng/optimus-ui/fileupload';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
+import { MessageModule } from '@openng/optimus-ui/message';
 import { MessageService, ConfirmationService } from '@openng/optimus-ui/api';
 import type { FileUpload } from '@openng/optimus-ui/fileupload';
 import { AuthService } from '../../services/auth.service';
 import { StorageService } from '../../services/storage.service';
-import {
-  HouseholdAccessError,
-  HouseholdService,
-} from '../../services/household.service';
-import { environment } from '../../../environments/environment';
+import { HouseholdService } from '../../services/household.service';
 import {
   CATEGORIAS_ENTRADA,
   CATEGORIAS_SALIDA,
@@ -47,6 +44,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
     ConfirmDialogModule,
     FileUploadModule,
     TooltipModule,
+    MessageModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -55,7 +53,12 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
 
     <p-toolbar class="mb-3">
       <ng-template #start>
-        <h3 class="m-0">Control de Gastos - {{ currentUser }}</h3>
+        <div class="flex flex-column">
+          <h3 class="m-0">Control de Gastos</h3>
+          <small class="text-500">
+            Sesión: {{ currentUser }} · {{ currentEmail }}
+          </small>
+        </div>
       </ng-template>
 
       <ng-template #end>
@@ -164,6 +167,52 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
       </ng-template>
     </p-toolbar>
 
+    @if (!accessDenied) {
+      <p-message severity="info" class="w-full mb-3">
+        <div class="flex flex-wrap align-items-center gap-2">
+          <i class="pi pi-user"></i>
+          <span>
+            Estás usando la cuenta de <strong>{{ currentUser }}</strong>
+            ({{ currentEmail }}). Los movimientos se guardan en
+            <strong>{{ householdName || 'tu casa' }}</strong> y quedan a tu
+            nombre.
+          </span>
+        </div>
+      </p-message>
+
+      @if (!emailVerified) {
+        <p-message severity="warn" class="w-full mb-3">
+          <div class="flex flex-wrap align-items-center gap-2">
+            <i class="pi pi-envelope"></i>
+            <span>
+              Tu correo todavía no está verificado. Podés usar la app igual;
+              verificar el correo agrega seguridad a tu cuenta.
+            </span>
+            <button
+              pButton
+              type="button"
+              size="small"
+              variant="outlined"
+              [disabled]="verificationBusy"
+              (click)="resendVerification()"
+            >
+              Enviar enlace
+            </button>
+            <button
+              pButton
+              type="button"
+              size="small"
+              variant="text"
+              [disabled]="verificationBusy"
+              (click)="checkVerification()"
+            >
+              Ya verifiqué
+            </button>
+          </div>
+        </p-message>
+      }
+    }
+
     <p-fileupload
       #fileUpload
       mode="basic"
@@ -179,17 +228,15 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
       <div class="flex flex-column gap-3">
         <div class="flex align-items-center gap-2">
           <i class="pi pi-lock text-2xl text-orange-500"></i>
-          <h3 class="m-0">Tu cuenta no tiene acceso al hogar</h3>
+          <h3 class="m-0">No se pudo abrir tu casa</h3>
         </div>
 
         <p class="m-0 text-600">
           Iniciaste sesión como <strong>{{ accessEmail }}</strong
-          >. Tu email está autorizado para usar la app, pero todavía no
-          pertenece a este hogar. Si el hogar tiene menos de 2 miembros, la app
-          intenta sumarte automáticamente. Si ves esta pantalla, pedile al
-          administrador que agregue tu email a
-          <code>households/{{ householdId }}/memberEmails</code> o tu UID a
-          <code>members</code>.
+          >. No se pudo leer ni crear tu espacio privado en Firestore.
+          Verificá que las reglas de <code>firestore.rules</code> estén
+          publicadas y que tu correo siga en
+          <code>config/access.allowedEmails</code>.
         </p>
 
         <div class="flex flex-column gap-1">
@@ -223,11 +270,10 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
         </div>
 
         <small class="text-500">
-          Si el hogar todavía no existe y tu email está en
-          <code>config/access.allowedEmails</code>, la app lo crea
-          automáticamente. Si el hogar ya tiene 2 miembros, el administrador
-          debe liberar un lugar o agregarte manualmente. Si ya te agregaron,
-          verificá que las reglas estén publicadas.
+          Cada cuenta tiene su propia casa en
+          <code>households/{{ accessUid }}</code
+          >. Si las reglas no están publicadas, Firestore rechaza la lectura y
+          la creación.
         </small>
       </div>
     </p-card>
@@ -405,12 +451,17 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
                   >
                 </td>
                 <td>
-                  <span
-                    class="inline-flex align-items-center gap-2 px-2 py-1 bg-primary-100 text-primary-700 border-round"
-                  >
-                    <i class="pi pi-user"></i>
-                    <span>{{ gasto.usuario }}</span>
-                  </span>
+                  <div class="flex flex-column gap-1">
+                    <span
+                      class="inline-flex align-items-center gap-2 px-2 py-1 bg-primary-100 text-primary-700 border-round"
+                    >
+                      <i class="pi pi-user"></i>
+                      <span>{{ gasto.usuario }}</span>
+                    </span>
+                    @if (gasto.usuarioEmail) {
+                      <small class="text-500">{{ gasto.usuarioEmail }}</small>
+                    }
+                  </div>
                 </td>
               </tr>
             </ng-template>
@@ -555,10 +606,13 @@ export class DashboardComponent implements OnInit {
   loading = false;
   saving = false;
   currentUser = '';
+  currentEmail = '';
+  householdName = '';
+  emailVerified = true;
+  verificationBusy = false;
   accessDenied = false;
   accessEmail = '';
   accessUid = '';
-  readonly householdId = environment.householdId;
   gastos: Gasto[] = [];
   totalEntradas = 0;
   totalSalidas = 0;
@@ -589,30 +643,89 @@ export class DashboardComponent implements OnInit {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    this.currentUser = this.authService.getCurrentUser();
-
-    const identity = this.householdService.getCurrentIdentity();
+    const identity = this.authService.getCurrentIdentity();
+    this.currentUser = identity.name;
+    this.currentEmail = identity.email;
     this.accessEmail = identity.email;
     this.accessUid = identity.uid;
+    this.emailVerified = this.authService.getCurrentUserEmailVerified();
 
     try {
       const household = await this.householdService.ensureHousehold();
+      this.householdName = household.name;
       await this.authService.saveHouseholdAssignment(household.id);
       await this.cargarGastos();
-    } catch (error) {
-      if (error instanceof HouseholdAccessError) {
-        this.accessDenied = true;
-        this.accessEmail = error.email || this.accessEmail;
-        this.accessUid = error.uid || this.accessUid;
-        return;
-      }
 
+      this.messageService.add({
+        severity: 'info',
+        summary: 'Sesión iniciada',
+        detail: `Estás usando la cuenta de ${this.currentUser} (${this.currentEmail}).`,
+        life: 5000,
+      });
+    } catch (error) {
+      this.accessDenied = true;
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: this.errorDetail(error, 'No se pudo inicializar el hogar.'),
+        detail: this.errorDetail(error, 'No se pudo inicializar tu casa.'),
         life: 6000,
       });
+    }
+  }
+
+  async resendVerification(): Promise<void> {
+    this.verificationBusy = true;
+
+    try {
+      await this.authService.resendVerificationEmail();
+      this.messageService.add({
+        severity: 'success',
+        summary: 'Correo enviado',
+        detail: 'Te enviamos un enlace para verificar tu correo.',
+        life: 4000,
+      });
+    } catch (error) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: this.errorDetail(
+          error,
+          'No se pudo enviar el correo de verificación.',
+        ),
+        life: 5000,
+      });
+    } finally {
+      this.verificationBusy = false;
+    }
+  }
+
+  async checkVerification(): Promise<void> {
+    this.verificationBusy = true;
+
+    try {
+      const verified = await this.authService.refreshEmailVerification();
+      this.emailVerified = verified;
+
+      this.messageService.add({
+        severity: verified ? 'success' : 'warn',
+        summary: verified ? 'Correo verificado' : 'Todavía no',
+        detail: verified
+          ? 'Tu correo quedó verificado.'
+          : 'Abrí el enlace que te enviamos y volvé a intentar.',
+        life: 4000,
+      });
+    } catch (error) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: this.errorDetail(
+          error,
+          'No se pudo comprobar la verificación.',
+        ),
+        life: 5000,
+      });
+    } finally {
+      this.verificationBusy = false;
     }
   }
 
@@ -884,7 +997,7 @@ export class DashboardComponent implements OnInit {
     const code = (error as { code?: string } | null)?.code ?? '';
 
     if (code === 'permission-denied') {
-      return 'Sin permiso para acceder al hogar. Verificá que firestore.rules esté publicado y que tu email o UID esté autorizado en households/casa.';
+      return 'Sin permiso para acceder a tu casa. Verificá que firestore.rules esté publicado y que tu correo siga en config/access.allowedEmails.';
     }
 
     if (code === 'unavailable') {

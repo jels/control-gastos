@@ -7,7 +7,9 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 - Angular 22.2 + TypeScript 6.0.
 - Optimus UI 2.0.2 (MIT) con tema Aura, sin licencia ni registro.
 - Firebase 13: Authentication + Firestore.
-- Datos compartidos por hogar y protegidos con reglas de Firestore.
+- Datos privados por cuenta y protegidos con reglas de Firestore.
+- Login directo con correo y contraseña, con lista de acceso y creación de contraseña en el primer ingreso.
+- Identidad visible en el dashboard y en cada gasto (`usuario`, `usuarioUid`, `usuarioEmail`).
 - Build de producción y tests unitarios (shell y login) funcionando con Vitest 5.
 - `npm audit`: 0 vulnerabilidades conocidas.
 
@@ -17,15 +19,15 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 |---|---|
 | Contraseñas en texto plano dentro del bundle | Resuelto con Firebase Authentication. |
 | Login con usuario/contraseña | Reemplazado por Firebase Authentication con correo y contraseña. |
-| Cuentas con contraseña sin correo verificado | Se exige verificación por email antes de acceder a Firestore. |
+| Cuentas con contraseña sin correo verificado | La verificación es opcional y no bloquea el acceso; se ofrece desde el dashboard. |
 | Correos no autorizados podían llegar al paso de contraseña | Se valida `config/access.allowedEmails` antes de mostrar contraseña o asignación. |
 | Detección de contraseña dependía de Email enumeration protection | Se agregó el índice `acceso/{email}` con `passwordSet`, sin guardar contraseñas ni hashes. |
 | Usuarios sin tabla visible | Perfil en `usuarios/{uid}` (email, nombre, proveedor, último acceso); la contraseña queda en Firebase Auth, hasheada. |
-| Cuentas creadas solo con Google | Se eliminan y recrean con contraseña; la app guía el proceso. |
+| Cuentas creadas solo con Google | Se ofrece vincular una contraseña con Google y conservar el mismo UID. |
 | Acceso de cualquier cuenta | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |
-| Configuración manual inicial del hogar | La primera cuenta crea `households/casa`; la segunda se agrega por email/UID. |
+| Configuración manual inicial del hogar | Cada cuenta crea su propia `households/{uid}` y solo puede acceder a ella. |
 | Dependencia de un backend externo en Render | Reemplazado por Firestore. |
-| Todos los datos eran globales | Ahora se aíslan por `households/{id}` y reglas de miembros. |
+| Todos los datos eran globales | Ahora se aíslan por cuenta en `households/{uid}` y reglas de dueño. |
 | `localStorage` solo guardaba el nombre de usuario | La sesión ahora la gestiona Firebase Auth. |
 | Fechas `yyyy-MM-dd` con corrimiento por UTC | Se interpretan como medianoche local. |
 | CSV con posible inyección de fórmulas | Se escapan celdas peligrosas. |
@@ -34,13 +36,13 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 | PrimeNG 17 con Angular 20 y `legacy-peer-deps` | Migrado a Optimus UI 2 + Angular 22, sin workaround ni licencia. |
 | PrimeNG 22 con licencia comercial | Reemplazado por Optimus UI 2.0.2 (MIT, sin registro). |
 | Karma/Jasmine con dependencias vulnerables | Migrado a Vitest 5 + jsdom. |
-| Sin tests | Hay tests del shell y del flujo de login (correo, contraseña, asignación y verificación). |
+| Sin tests | Hay tests del shell y del flujo de login (correo, contraseña, creación de cuenta y Google). |
 
 ## Prioridades siguientes
 
-### 1. Tiempo real entre los dos usuarios
+### 1. Tiempo real
 
-Hoy el dashboard carga una vez y se refresca con el botón. Para un hogar, lo ideal es que cuando uno carga un gasto, el otro lo vea al instante.
+Hoy el dashboard carga una vez y se refresca con el botón. Lo ideal es que los cambios aparezcan al instante dentro de la misma cuenta.
 
 - Usar `onSnapshot` de Firestore en `StorageService`.
 - Exponer un observable o callback y desuscribirse en `ngOnDestroy`.
@@ -52,7 +54,7 @@ Actualmente solo se puede borrar todo el historial.
 
 - Agregar acciones por fila: editar y eliminar.
 - Confirmar la eliminación con `ConfirmationService`.
-- Validar que el usuario siga siendo miembro del hogar en las reglas.
+- Validar que el usuario siga siendo dueño de la casa en las reglas.
 
 ### 3. Filtros y resumen mensual
 
@@ -61,18 +63,16 @@ Actualmente solo se puede borrar todo el historial.
 - Agregar un gráfico de gastos por categoría.
 - Considerar `p-chart` (Optimus UI lo mantiene como deprecado) o una librería de gráficos mantenida.
 
-### 4. Onboarding del hogar
+### 4. Perfil y migración
 
-Hoy la primera cuenta verificada crea el hogar automáticamente, pero la segunda se agrega a mano en Firestore o por auto-join si hay lugar.
-
-- Agregar una pantalla para invitar al segundo miembro desde la app.
-- Permitir unirse con un código de invitación o aprobación del dueño.
-- Diseñar reglas que permitan unirse solo con una invitación válida.
+- Permitir editar el nombre visible desde la app.
+- Agregar una herramienta para importar los datos de la antigua `households/casa` a la casa de cada cuenta.
+- Evaluar un asistente de migración con el Admin SDK.
 
 ### 5. Seguridad adicional
 
 - Activar **Firebase App Check**.
-- Evaluar verificación de email.
+- Evaluar volver a exigir verificación de email cuando todas las cuentas estén verificadas.
 - Agregar límites de uso y monitoreo de errores (Sentry o similar).
 - Revisar periódicamente las reglas con el simulador de Firestore.
 
@@ -80,7 +80,7 @@ Hoy la primera cuenta verificada crea el hogar automáticamente, pero la segunda
 
 - Convertir la app en PWA instalable.
 - Mostrar un indicador claro de “sin conexión” y de escrituras pendientes.
-- Probar conflictos cuando ambos usuarios editan el mismo registro.
+- Probar conflictos cuando se edita el mismo registro desde dos pestañas.
 
 ### 7. Calidad y CI/CD
 
@@ -96,9 +96,10 @@ Hoy la primera cuenta verificada crea el hogar automáticamente, pero la segunda
 - Evaluar un preset propio (colores, tipografía) usando `definePreset` con `provideOptimus`.
 - Opcional: migrar PrimeFlex a Tailwind con `ng generate @openng/optimus-ui:migrate-from-primeflex`.
 - Revisar el tamaño del bundle: Firebase + Optimus UI ronda los 2.3 MB sin comprimir.
+
 ## Notas de arquitectura
 
 - Los servicios usan el SDK modular de Firebase con `InjectionToken`, lo que mantiene el código testeable y desacoplado de AngularFire.
 - `StorageService` centraliza fechas, CSV, importación y lotes de Firestore.
 - `firestore.rules` es la única fuente de verdad para permisos; el frontend no debe considerarse confiable.
-- El `householdId` está en el environment para que el mismo build pueda apuntar a otro hogar cambiando solo la configuración.
+- Cada cuenta usa `households/{uid}`; no hay un `householdId` global en el environment.
