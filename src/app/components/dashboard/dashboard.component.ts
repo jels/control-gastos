@@ -1,4 +1,9 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import {
+  ChangeDetectorRef,
+  Component,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ToolbarModule } from '@openng/optimus-ui/toolbar';
@@ -124,7 +129,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
               type="button"
               rounded
               iconOnly
-              variant="outlined"
+              outlined
               [disabled]="loading"
               pTooltip="Recargar datos"
               tooltipPosition="bottom"
@@ -179,38 +184,6 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
           </span>
         </div>
       </p-message>
-
-      @if (!emailVerified) {
-        <p-message severity="warn" class="w-full mb-3">
-          <div class="flex flex-wrap align-items-center gap-2">
-            <i class="pi pi-envelope"></i>
-            <span>
-              Tu correo todavía no está verificado. Podés usar la app igual;
-              verificar el correo agrega seguridad a tu cuenta.
-            </span>
-            <button
-              pButton
-              type="button"
-              size="small"
-              variant="outlined"
-              [disabled]="verificationBusy"
-              (click)="resendVerification()"
-            >
-              Enviar enlace
-            </button>
-            <button
-              pButton
-              type="button"
-              size="small"
-              variant="text"
-              [disabled]="verificationBusy"
-              (click)="checkVerification()"
-            >
-              Ya verifiqué
-            </button>
-          </div>
-        </p-message>
-      }
     }
 
     <p-fileupload
@@ -248,7 +221,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
           <button
             pButton
             type="button"
-            variant="outlined"
+            outlined
             (click)="copiar(accessUid, 'UID')"
           >
             <i class="pi pi-copy"></i>
@@ -257,7 +230,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
           <button
             pButton
             type="button"
-            variant="outlined"
+            outlined
             (click)="copiar(accessEmail, 'email')"
           >
             <i class="pi pi-envelope"></i>
@@ -555,7 +528,7 @@ import type { Gasto, NuevoGasto } from '../../models/gasto.model';
           <button
             pButton
             type="button"
-            variant="outlined"
+            outlined
             severity="secondary"
             (click)="displayDialog = false"
           >
@@ -608,8 +581,6 @@ export class DashboardComponent implements OnInit {
   currentUser = '';
   currentEmail = '';
   householdName = '';
-  emailVerified = true;
-  verificationBusy = false;
   accessDenied = false;
   accessEmail = '';
   accessUid = '';
@@ -640,6 +611,7 @@ export class DashboardComponent implements OnInit {
     private householdService: HouseholdService,
     private messageService: MessageService,
     private confirmationService: ConfirmationService,
+    private cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -648,7 +620,7 @@ export class DashboardComponent implements OnInit {
     this.currentEmail = identity.email;
     this.accessEmail = identity.email;
     this.accessUid = identity.uid;
-    this.emailVerified = this.authService.getCurrentUserEmailVerified();
+    this.refreshView();
 
     try {
       const household = await this.householdService.ensureHousehold();
@@ -671,62 +643,8 @@ export class DashboardComponent implements OnInit {
         life: 6000,
       });
     }
-  }
 
-  async resendVerification(): Promise<void> {
-    this.verificationBusy = true;
-
-    try {
-      await this.authService.resendVerificationEmail();
-      this.messageService.add({
-        severity: 'success',
-        summary: 'Correo enviado',
-        detail: 'Te enviamos un enlace para verificar tu correo.',
-        life: 4000,
-      });
-    } catch (error) {
-      this.messageService.add({
-        severity: 'error',
-        summary: 'Error',
-        detail: this.errorDetail(
-          error,
-          'No se pudo enviar el correo de verificación.',
-        ),
-        life: 5000,
-      });
-    } finally {
-      this.verificationBusy = false;
-    }
-  }
-
-  async checkVerification(): Promise<void> {
-    this.verificationBusy = true;
-
-    try {
-      const verified = await this.authService.refreshEmailVerification();
-      this.emailVerified = verified;
-
-      this.messageService.add({
-        severity: verified ? 'success' : 'warn',
-        summary: verified ? 'Correo verificado' : 'Todavía no',
-        detail: verified
-          ? 'Tu correo quedó verificado.'
-          : 'Abrí el enlace que te enviamos y volvé a intentar.',
-        life: 4000,
-      });
-    } catch (error) {
-      this.messageService.add({
-        severity: 'error',
-        summary: 'Error',
-        detail: this.errorDetail(
-          error,
-          'No se pudo comprobar la verificación.',
-        ),
-        life: 5000,
-      });
-    } finally {
-      this.verificationBusy = false;
-    }
+    this.refreshView();
   }
 
   elegirArchivo(): void {
@@ -767,6 +685,7 @@ export class DashboardComponent implements OnInit {
       });
     } finally {
       this.loading = false;
+      this.refreshView();
     }
   }
 
@@ -792,6 +711,7 @@ export class DashboardComponent implements OnInit {
     };
     this.categoriasDisponibles = CATEGORIAS_SALIDA;
     this.displayDialog = true;
+    this.refreshView();
   }
 
   onTipoChange(): void {
@@ -800,6 +720,7 @@ export class DashboardComponent implements OnInit {
         ? CATEGORIAS_ENTRADA
         : CATEGORIAS_SALIDA;
     this.nuevoGasto.categoria = '';
+    this.refreshView();
   }
 
   async guardarGasto(): Promise<void> {
@@ -833,6 +754,7 @@ export class DashboardComponent implements OnInit {
       });
     } finally {
       this.saving = false;
+      this.refreshView();
     }
   }
 
@@ -844,6 +766,7 @@ export class DashboardComponent implements OnInit {
         detail: 'No hay datos para descargar',
         life: 3000,
       });
+      this.refreshView();
       return;
     }
 
@@ -854,6 +777,7 @@ export class DashboardComponent implements OnInit {
       detail: 'Archivo CSV descargado',
       life: 3000,
     });
+    this.refreshView();
   }
 
   descargarJSON(): void {
@@ -864,6 +788,7 @@ export class DashboardComponent implements OnInit {
         detail: 'No hay datos para descargar',
         life: 3000,
       });
+      this.refreshView();
       return;
     }
 
@@ -874,6 +799,7 @@ export class DashboardComponent implements OnInit {
       detail: 'Archivo JSON descargado',
       life: 3000,
     });
+    this.refreshView();
   }
 
   async onFileUpload(event: { files?: File[] }): Promise<void> {
@@ -886,6 +812,7 @@ export class DashboardComponent implements OnInit {
         detail: 'No se seleccionó ningún archivo.',
         life: 3000,
       });
+      this.refreshView();
       return;
     }
 
@@ -917,6 +844,8 @@ export class DashboardComponent implements OnInit {
         detail: this.errorDetail(error, 'No se pudo importar el archivo JSON.'),
         life: 5000,
       });
+    } finally {
+      this.refreshView();
     }
   }
 
@@ -963,6 +892,8 @@ export class DashboardComponent implements OnInit {
         detail: this.errorDetail(error, 'No se pudieron eliminar los datos.'),
         life: 5000,
       });
+    } finally {
+      this.refreshView();
     }
   }
 
@@ -986,11 +917,21 @@ export class DashboardComponent implements OnInit {
         detail: 'No se pudo copiar al portapapeles.',
         life: 3000,
       });
+    } finally {
+      this.refreshView();
     }
   }
 
   async logout(): Promise<void> {
     await this.authService.logout();
+  }
+
+  private refreshView(): void {
+    try {
+      this.cdr.detectChanges();
+    } catch {
+      // La vista pudo haber sido destruida por una navegación.
+    }
   }
 
   private errorDetail(error: unknown, fallback: string): string {

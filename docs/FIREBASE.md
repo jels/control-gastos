@@ -4,7 +4,7 @@ Esta app usa:
 
 - **Angular 22.2** con componentes standalone.
 - **Optimus UI 2.0.2** (MIT) para la interfaz.
-- **Firebase Authentication** con correo y contraseña. Google se usa solo como alternativa para vincular una contraseña a una cuenta que ya existe con Google.
+- **Firebase Authentication** con correo y contraseña. La app no se conecta con Google ni con otros proveedores externos.
 - **Cloud Firestore** como base de datos.
 - El **SDK modular de Firebase 13 directamente**, sin `@angular/fire`.
 
@@ -23,9 +23,8 @@ usuarios/
   {uid}/                      ← perfil del usuario (nunca guarda contraseña)
     email: string
     displayName: string
-    provider: "password" | "google.com"
+    provider: "password"
     passwordSet: boolean
-    emailVerified: boolean
     householdId: string       ← es el mismo UID
     lastLogin: Timestamp
 
@@ -69,7 +68,7 @@ Puntos importantes:
 
 - **Node.js** `^22.22.3`, `^24.15.0` o `>=26.0.0`.
 - **npm 11** o superior.
-- Una cuenta de Google para Firebase.
+- Una cuenta para acceder a Firebase Console.
 - **Optimus UI es MIT**: no requiere licencia, registro ni clave.
 
 Comprobá las versiones:
@@ -86,7 +85,7 @@ npm --version
 1. Entrá a <https://console.firebase.google.com/>.
 2. Hacé clic en **Agregar proyecto**.
 3. Elegí un nombre (por ejemplo `control-gastos`).
-4. Google Analytics es opcional; para esta app no es necesario.
+4. Analytics es opcional; para esta app no es necesario.
 5. Creá el proyecto.
 
 ---
@@ -130,14 +129,13 @@ export const firebaseConfig: FirebaseOptions = {
 
 1. En Firebase Console, andá a **Compilación → Authentication**.
 2. Hacé clic en **Comenzar**.
-3. En **Sign-in method**, habilitá **Email/Password**.
-4. Si tu correo ya existe en Firebase con Google y querés vincularle una contraseña, habilitá también **Google**.
-5. En **Authentication → Settings → Authorized domains**, verificá que estén:
+3. En **Sign-in method**, habilitá **Email/Password**. No hace falta habilitar Google ni ningún otro proveedor.
+4. En **Authentication → Settings → Authorized domains**, verificá que estén:
    - `localhost`
    - tu dominio de Netlify (cuando publiques la app)
-6. Opcional: en **Authentication → Settings → User actions**, podés dejar activada o desactivada la **protección contra enumeración de emails**. La app no depende de esa opción: usa el índice `acceso/{email}` y, si falta, ofrece crear la contraseña.
+5. Opcional: en **Authentication → Settings → User actions**, podés dejar activada o desactivada la **protección contra enumeración de emails**. La app no depende de esa opción: usa el índice `acceso/{email}` y, si falta, ofrece crear la contraseña.
 
-> La pantalla de login muestra **correo y contraseña**. Google no se muestra como login principal, pero se usa para vincular una contraseña a una cuenta creada previamente con Google.
+> La pantalla de login muestra **solo correo y contraseña**. La app no abre ninguna ventana de Google ni valida el correo contra Google.
 
 ---
 
@@ -185,17 +183,15 @@ No hace falta crear usuarios a mano.
 2. Muestra el correo bloqueado y el campo **Contraseña**.
 3. Al ingresar, Firestore valida la sesión y la pertenencia a la casa.
 
-### Si el correo ya existe con Google
+### Si el correo ya existe en Firebase
 
-Firebase no permite asignar una contraseña a una cuenta federada sin autenticarse primero con Google. La app ofrece:
+Si el correo ya existe en Firebase con otro método de acceso y no tiene contraseña, Firebase devuelve `auth/email-already-in-use`. La app no se conecta con Google ni con otro proveedor: muestra un mensaje para que elimines ese usuario en **Firebase Console → Authentication → Users** y vuelvas a crear la contraseña.
 
-- **Vincular con Google y crear contraseña:** inicia sesión con la cuenta de Google, comprueba que el correo coincida y vincula la contraseña al mismo UID. La casa y los gastos no se pierden.
-- **Prefiero restablecer la contraseña:** envía un correo de restablecimiento si la cuenta lo permite.
-- **Ya tengo contraseña:** vuelve al paso de contraseña.
+Si el correo ya tiene contraseña, escribila en **Crear cuenta e ingresar** o usá **Ya tengo contraseña**. La app intenta iniciar sesión automáticamente.
 
 ### Contraseña olvidada
 
-En el paso de contraseña, usá **Olvidé mi contraseña**. Firebase envía un enlace al correo. Si la cuenta es solo de Google, usá la vinculación con Google.
+En el paso de contraseña, usá **Olvidé mi contraseña**. Firebase envía un enlace al correo.
 
 ### Identidad visible
 
@@ -212,16 +208,15 @@ En `usuarios/{uid}` se guarda:
 usuarios/{uid}
   email: string
   displayName: string
-  provider: "password" | "google.com"
+  provider: "password"
   passwordSet: boolean
-  emailVerified: boolean
   householdId: string
   lastLogin: Timestamp
 ```
 
 **La contraseña no se guarda en Firestore.** Firebase Authentication la almacena hasheada y no se puede leer. Guardar contraseñas o hashes en la base sería un riesgo de seguridad y no es necesario: las reglas de Firestore no pueden validar una contraseña, así que la verificación real siempre la hace Firebase Auth en el servidor.
 
-`passwordSet` y `emailVerified` son informativos. La autenticación real la valida Firebase Auth.
+`passwordSet` es informativo. La autenticación real la valida Firebase Auth.
 
 ### Índice de acceso `acceso/{email}`
 
@@ -239,13 +234,7 @@ Sirve para que el login sepa si debe pedir contraseña incluso si Firebase tiene
 
 Si eliminás una cuenta desde **Authentication → Users**, borrá también su documento en `acceso` para que el login no siga mostrando el paso de contraseña.
 
-### Verificación del correo
-
-La verificación es **opcional y no bloquea el acceso**. Al crear una cuenta se envía un enlace de verificación y el dashboard muestra un aviso mientras el correo no esté verificado, con las opciones **Enviar enlace** y **Ya verifiqué**.
-
-Esto permite entrar de inmediato y, al mismo tiempo, ofrece una mejora de seguridad para quien quiera completarla.
-
-> **Nota de seguridad:** como el acceso no exige `email_verified`, la protección principal es la lista `config/access.allowedEmails`. Si alguien conociera un correo autorizado y creara una cuenta con ese correo antes que su dueño, podría reclamarlo. Para un entorno más estricto, verificá los correos o creá las cuentas desde Firebase Console/Admin SDK antes de habilitar el auto-registro. Ver la sección 9.
+> **Validación de acceso:** la única validación es `config/access.allowedEmails` más la contraseña de Firebase Authentication. La app no envía enlaces de verificación ni valida el correo con Google.
 
 ---
 
@@ -307,10 +296,7 @@ También revisá **Firebase Console → App Check** si usás App Check: con enfo
 - `config/access` y `acceso/{email}` se pueden leer puntualmente sin sesión para validar el correo y saber si ya tiene contraseña. Solo contienen emails y estado; no pongas ahí contraseñas, hashes, tokens ni datos sensibles.
 - La seguridad real está en `firestore.rules`: primero se exige que el email esté en `config/access.allowedEmails`; después, que la casa sea propia (`households/{uid}`).
 - **Las contraseñas las gestiona Firebase Authentication.** Se guardan hasheadas y no se pueden leer. En Firestore solo se guarda el perfil (`usuarios/{uid}`), nunca la contraseña.
-- **El correo no verificado no bloquea el acceso** para que el flujo sea directo. La lista de acceso es la autorización principal. Para un entorno de mayor seguridad:
-  - Verificá los correos desde el dashboard.
-  - Creá las cuentas desde Firebase Console o con el Admin SDK.
-  - Considerá volver a exigir `email_verified` en las reglas una vez que todas las cuentas estén verificadas.
+- **La única validación de acceso es `config/access.allowedEmails` más la contraseña de Firebase Authentication.** No se exige verificación de email ni se usan proveedores externos. Para un entorno más estricto, creá las cuentas desde Firebase Console o con el Admin SDK.
 - Los UID y emails se administran desde Firebase Console o con el Admin SDK, nunca desde el cliente.
 - La lista global de acceso se edita en `config/access.allowedEmails` desde Firestore Console, siempre en minúsculas.
 - No guardes `serviceAccountKey.json` ni claves privadas en el repositorio.
@@ -335,7 +321,7 @@ Abrí <http://localhost:4200>. El login es en dos pasos:
 5. Al entrar, el dashboard muestra quién está usando la cuenta y crea `households/{uid}` automáticamente.
 6. Cada gasto se guarda en la casa de esa cuenta, con el nombre, email y UID de la sesión.
 
-Si **Email enumeration protection** está activada, la app no puede saber de antemano si el correo tiene contraseña cuando falta el índice `acceso`. En ese caso ofrece crear la contraseña y, si el correo ya existe, muestra las opciones para ingresar, vincular con Google o restablecer.
+Si falta el índice `acceso` (por ejemplo, una cuenta creada antes de esta versión), la app no puede saber de antemano si el correo ya tiene contraseña. En ese caso ofrece crear la contraseña; si la cuenta ya existe con contraseña, el intento de creación falla y la app intenta iniciar sesión con la contraseña ingresada. Si la cuenta existe con otro método de acceso, muestra un mensaje para eliminarla en Firebase Console y crear la contraseña.
 
 Comandos útiles:
 
@@ -425,10 +411,9 @@ Si no necesitás el historial anterior, no hagas nada. El documento `households/
 | “No se pudo leer la lista de acceso” | Las reglas publicadas no permiten leer `config/access` sin sesión | Publicá `firestore.rules` (paso 8) |
 | “Este correo no está autorizado” | El email no está en `config/access.allowedEmails` o está con mayúsculas | Agregalo en minúsculas y revisá que el documento exista |
 | `auth/invalid-credential` | Correo o contraseña incorrectos, o la cuenta todavía no tiene contraseña | Usá **Crear contraseña** o **Olvidé mi contraseña** |
-| `auth/email-already-in-use` | El correo ya tiene una cuenta en Firebase (puede ser Google) | Usá **Ya tengo contraseña**, **Vincular con Google** o **Restablecer** |
+| `auth/email-already-in-use` | El correo ya existe en Firebase con otro método de acceso y no tiene contraseña | Eliminá ese usuario en **Authentication → Users** y volvé a crear la contraseña. Si ya tenía contraseña, usá **Ya tengo contraseña** o **Olvidé mi contraseña** |
 | `auth/weak-password` | La contraseña tiene menos de 6 caracteres | Usá al menos 6 caracteres |
 | `auth/too-many-requests` | Demasiados intentos o envíos de correo | Esperá unos minutos y volvé a intentar |
-| No llega el correo de verificación | Spam, correo mal escrito o límite de envíos | Revisá spam, verificá el email y usá **Enviar enlace** en el dashboard |
 | La app dice “No se pudo abrir tu casa” | Las reglas no están publicadas o el correo dejó de estar autorizado | Publicá las reglas y revisá `config/access.allowedEmails` |
 | `permission-denied` | Reglas desactualizadas, correo fuera de la lista o casa ajena | Publicá las reglas, revisá la lista y que el documento sea `households/{uid}` |
 | Los datos de la versión anterior no aparecen | Ahora cada cuenta tiene su propia casa | Exportá/importá el JSON o migrá con el Admin SDK (paso 13) |

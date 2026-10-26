@@ -43,7 +43,7 @@ Antes de usar la app:
 3. La app comprueba `acceso/{email}`:
    - Si ya tiene contraseña, muestra el campo **Contraseña**.
    - Si no tiene contraseña, muestra **Crear cuenta e ingresar** para asignarla.
-4. Si el correo ya existe en Firebase con Google y todavía no tiene contraseña, se ofrece **Vincular con Google y crear contraseña** para conservar el mismo UID.
+4. Si el correo ya existe en Firebase con otro método de acceso y no tiene contraseña, la app muestra un mensaje para resolverlo desde Firebase Console. No se conecta con Google ni con proveedores externos.
 5. Al entrar, el dashboard muestra **“Estás usando la cuenta de …”** y cada gasto queda registrado con el nombre, email y UID de la cuenta.
 
 La contraseña **nunca** se guarda en Firestore: la administra Firebase Authentication. En `acceso/{email}` solo se guarda el estado `passwordSet`.
@@ -52,7 +52,7 @@ La contraseña **nunca** se guarda en Firestore: la administra Firebase Authenti
 
 ```text
 usuarios/{uid}
-  email, displayName, provider, passwordSet, emailVerified, householdId, lastLogin
+  email, displayName, provider, passwordSet, householdId, lastLogin
 
 acceso/{email}
   email, uid, passwordSet, updatedAt
@@ -118,9 +118,9 @@ firebase.json
 
 - **Cada cuenta, su casa:** los datos se guardan en `households/{uid}/gastos`. Dos correos distintos no ven ni mezclan sus gastos.
 - **Identidad visible:** el dashboard muestra el nombre y el email de la sesión; el gasto guarda `usuario`, `usuarioUid` y `usuarioEmail`.
-- **Lista de acceso:** se edita en Firestore, en `config/access.allowedEmails`. Debe contener correos en minúsculas.
+- **Lista de acceso:** se edita en Firestore, en `config/access.allowedEmails`. Debe contener correos en minúsculas. Es la única validación de acceso: no se usa Google ni verificación por correo.
 - **Índice de contraseñas:** `acceso/{email}` permite decidir si hay que pedir contraseña incluso con la protección contra enumeración de emails de Firebase activada. No contiene contraseñas ni hashes.
-- **Verificación de correo:** se envía un enlace como recomendación de seguridad, pero **no bloquea el acceso**. El dashboard muestra un aviso mientras el correo no esté verificado.
+- **Google:** la app no se conecta con cuentas de Google. Si un correo ya existe en Firebase con otro proveedor, hay que eliminarlo desde **Authentication → Users** para poder crear su contraseña.
 - **Datos anteriores:** los documentos de la versión compartida (`households/casa`) no se borran, pero la app nueva ya no los lee. Para conservarlos, exportá un JSON antes de migrar e importalo con el botón **Importar JSON**, o copiá los documentos con el Admin SDK. Ver [docs/FIREBASE.md](docs/FIREBASE.md).
 - **Optimus UI es MIT**: no requiere licencia, registro ni clave.
 - **AngularFire no está instalado**: su versión estable apunta a Angular 20 y todavía no hay una estable para Angular 22. La integración usa `firebase/app`, `firebase/auth` y `firebase/firestore`.

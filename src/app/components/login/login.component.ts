@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { CardModule } from '@openng/optimus-ui/card';
@@ -110,7 +110,8 @@ type LoginStep = 'email' | 'password' | 'assign';
               <button
                 pButton
                 type="button"
-                variant="outlined"
+                outlined
+                severity="secondary"
                 class="w-full"
                 [disabled]="emailLoading"
                 (click)="startAssign()"
@@ -122,7 +123,8 @@ type LoginStep = 'email' | 'password' | 'assign';
               <button
                 pButton
                 type="button"
-                variant="text"
+                text
+                severity="secondary"
                 class="w-full"
                 [disabled]="emailLoading"
                 (click)="forgotPassword()"
@@ -134,7 +136,8 @@ type LoginStep = 'email' | 'password' | 'assign';
               <button
                 pButton
                 type="button"
-                variant="text"
+                text
+                severity="secondary"
                 class="w-full"
                 [disabled]="emailLoading"
                 (click)="resetAccount()"
@@ -147,8 +150,8 @@ type LoginStep = 'email' | 'password' | 'assign';
           @if (step === 'assign') {
             <div class="flex flex-column gap-2">
               <p class="m-0 text-600 text-center">
-                Creá una contraseña para tu cuenta. Si el correo ya existe con
-                Google, podés vincularla para conservar la misma cuenta.
+                Creá una contraseña para tu cuenta. Si ya tenías una, usá “Ya
+                tengo contraseña”.
               </p>
 
               <label for="assign-email">Correo</label>
@@ -187,40 +190,23 @@ type LoginStep = 'email' | 'password' | 'assign';
                 }
               </button>
 
-              @if (showGoogleLink) {
-                <p class="m-0 text-600 text-sm text-center">
-                  Ese correo ya existe con Google. Para conservar la misma
-                  cuenta, vinculá una contraseña iniciando sesión con Google.
-                </p>
-
-                <button
-                  pButton
-                  type="button"
-                  variant="outlined"
-                  class="w-full"
-                  [disabled]="emailLoading"
-                  (click)="linkPasswordWithGoogle()"
-                >
-                  <i class="pi pi-google"></i>
-                  Vincular con Google y crear contraseña
-                </button>
-
-                <button
-                  pButton
-                  type="button"
-                  variant="text"
-                  class="w-full"
-                  [disabled]="emailLoading"
-                  (click)="forgotPassword()"
-                >
-                  Prefiero restablecer la contraseña
-                </button>
-              }
+              <button
+                pButton
+                type="button"
+                text
+                severity="secondary"
+                class="w-full"
+                [disabled]="emailLoading"
+                (click)="forgotPassword()"
+              >
+                Olvidé mi contraseña
+              </button>
 
               <button
                 pButton
                 type="button"
-                variant="text"
+                text
+                severity="secondary"
                 class="w-full"
                 [disabled]="emailLoading"
                 (click)="goToPassword()"
@@ -231,7 +217,8 @@ type LoginStep = 'email' | 'password' | 'assign';
               <button
                 pButton
                 type="button"
-                variant="text"
+                text
+                severity="secondary"
                 class="w-full"
                 [disabled]="emailLoading"
                 (click)="resetAccount()"
@@ -265,7 +252,6 @@ export class LoginComponent implements OnInit {
   password = '';
   checkingEmail = false;
   emailLoading = false;
-  showGoogleLink = false;
   errorMessage = '';
   infoMessage = '';
   readonly firebaseConfigured = isFirebaseConfigured();
@@ -273,7 +259,8 @@ export class LoginComponent implements OnInit {
   constructor(
     private authService: AuthService,
     private accessService: AccessService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -286,13 +273,14 @@ export class LoginComponent implements OnInit {
       try {
         await this.accessService.assertAllowed();
 
-        // Si la sesión viene de Google y todavía no tiene contraseña,
-        // se pide crearla antes de entrar al dashboard.
-        if (!this.authService.hasPasswordProvider()) {
-          this.showGoogleLink = true;
-          this.step = 'assign';
-          this.infoMessage =
-            'Tu sesión está abierta con Google y todavía no tiene contraseña. Creá una para ingresar también con correo y contraseña.';
+        // La app solo admite correo y contraseña. Si quedó una sesión
+        // vieja sin contraseña, se cierra y se pide ingresar de nuevo.
+        if (!(await this.authService.hasPasswordSession())) {
+          await this.authService.signOutSilently();
+          this.step = 'email';
+          this.errorMessage =
+            'Tu sesión anterior no tiene contraseña. Ingresá con correo y contraseña. Si el correo ya existe en Firebase con otro método de acceso, eliminá ese usuario en Firebase Console → Authentication → Users y volvé a crear la contraseña.';
+          this.refreshView();
           return;
         }
 
@@ -300,6 +288,7 @@ export class LoginComponent implements OnInit {
       } catch (error) {
         await this.authService.signOutSilently();
         this.errorMessage = this.mapAuthError(error);
+        this.refreshView();
       }
 
       return;
@@ -308,6 +297,8 @@ export class LoginComponent implements OnInit {
     if (authError) {
       this.errorMessage = this.mapAuthError(new Error(authError));
     }
+
+    this.refreshView();
   }
 
   async checkEmail(): Promise<void> {
@@ -340,50 +331,21 @@ export class LoginComponent implements OnInit {
 
       this.email = normalized;
       this.password = '';
-      this.showGoogleLink = false;
 
       // Segunda verificación: ¿ya tiene contraseña o hay que crearla?
-      // El índice `acceso/{email}` evita depender de la protección contra
-      // enumeración de emails de Firebase.
+      // El índice `acceso/{email}` es la única fuente para esta decisión.
       if (await this.authService.hasPasswordRecord(normalized)) {
         this.step = 'password';
         this.infoMessage = 'Ingresá la contraseña de tu cuenta.';
         return;
       }
 
-      let methods: string[] = [];
-
-      try {
-        methods = await this.authService.getSignInMethods(normalized);
-      } catch (error) {
-        if (this.errorCode(error) === 'auth/network-request-failed') {
-          this.errorMessage = this.mapAuthError(error);
-          return;
-        }
-
-        // Firebase puede devolver [] o fallar por email enumeration
-        // protection. En ese caso se ofrece crear la contraseña.
-        methods = [];
-      }
-
-      if (methods.includes('password')) {
-        this.step = 'password';
-        this.infoMessage = 'Ingresá la contraseña de tu cuenta.';
-        return;
-      }
-
       this.step = 'assign';
-
-      if (methods.includes('google.com')) {
-        this.showGoogleLink = true;
-        this.infoMessage =
-          'Ese correo ya existe con Google y todavía no tiene contraseña. Creá una para ingresar también con correo y contraseña.';
-      } else {
-        this.infoMessage =
-          'Creá una contraseña para tu cuenta. Si ya tenías una, usá “Ya tengo contraseña”.';
-      }
+      this.infoMessage =
+        'Creá una contraseña para tu cuenta. Si ya tenías una, usá “Ya tengo contraseña”.';
     } finally {
       this.checkingEmail = false;
+      this.refreshView();
     }
   }
 
@@ -413,6 +375,7 @@ export class LoginComponent implements OnInit {
       }
     } finally {
       this.emailLoading = false;
+      this.refreshView();
     }
   }
 
@@ -422,17 +385,6 @@ export class LoginComponent implements OnInit {
 
     if (this.password.length < 6) {
       this.errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
-      return;
-    }
-
-    // Si la sesión ya está autenticada con Google, no se puede crear otra
-    // cuenta: se vincula la contraseña a la cuenta existente.
-    if (
-      this.authService.hasGoogleProvider() &&
-      this.authService.getCurrentUserEmail().trim().toLowerCase() ===
-        this.email.trim().toLowerCase()
-    ) {
-      await this.linkPasswordWithGoogle();
       return;
     }
 
@@ -480,44 +432,19 @@ export class LoginComponent implements OnInit {
 
         if (hasPassword) {
           this.step = 'password';
-          this.showGoogleLink = false;
           this.errorMessage =
             'Ese correo ya tiene una contraseña. Ingresala o usá “Olvidé mi contraseña”.';
         } else {
           this.step = 'assign';
-          this.showGoogleLink = true;
           this.errorMessage =
-            'Ese correo ya tiene una cuenta en Firebase. Si ya tenías contraseña, usá “Ya tengo contraseña”. Si tu cuenta es de Google, vinculá una contraseña con Google o restablecela.';
+            'Ese correo ya existe en Firebase con otro método de acceso y no tiene contraseña. Para usar contraseña, eliminá ese usuario en Firebase Console → Authentication → Users y volvé a intentar. Si ya tenías contraseña, usá “Ya tengo contraseña” o “Olvidé mi contraseña”.';
         }
       } else {
         this.errorMessage = this.mapAuthError(error);
       }
     } finally {
       this.emailLoading = false;
-    }
-  }
-
-  async linkPasswordWithGoogle(): Promise<void> {
-    this.errorMessage = '';
-    this.infoMessage = '';
-
-    if (this.password.length < 6) {
-      this.errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
-      return;
-    }
-
-    this.emailLoading = true;
-
-    try {
-      await this.authService.linkPasswordWithGoogle(
-        this.email,
-        this.password
-      );
-      await this.router.navigate(['/dashboard']);
-    } catch (error) {
-      this.errorMessage = this.mapAuthError(error);
-    } finally {
-      this.emailLoading = false;
+      this.refreshView();
     }
   }
 
@@ -539,24 +466,24 @@ export class LoginComponent implements OnInit {
       this.errorMessage = this.mapAuthError(error);
     } finally {
       this.emailLoading = false;
+      this.refreshView();
     }
   }
 
   startAssign(): void {
     this.errorMessage = '';
-    this.infoMessage =
-      'Creá una contraseña para este correo. Si la cuenta ya existe con Google, podés vincularla.';
+    this.infoMessage = 'Creá una contraseña para este correo.';
     this.password = '';
-    this.showGoogleLink = false;
     this.step = 'assign';
+    this.refreshView();
   }
 
   goToPassword(): void {
     this.errorMessage = '';
     this.infoMessage = 'Ingresá la contraseña de tu cuenta.';
     this.password = '';
-    this.showGoogleLink = false;
     this.step = 'password';
+    this.refreshView();
   }
 
   async resetAccount(): Promise<void> {
@@ -569,9 +496,17 @@ export class LoginComponent implements OnInit {
     this.step = 'email';
     this.email = '';
     this.password = '';
-    this.showGoogleLink = false;
     this.errorMessage = '';
     this.infoMessage = '';
+    this.refreshView();
+  }
+
+  private refreshView(): void {
+    try {
+      this.cdr.detectChanges();
+    } catch {
+      // La vista pudo haber sido destruida por una navegación.
+    }
   }
 
   private validateEmail(): boolean {
@@ -621,10 +556,6 @@ export class LoginComponent implements OnInit {
       ACCESS_CHECK_FAILED:
         'No se pudo leer la lista de acceso. Publicá las reglas de firestore.rules en Firebase Console y revisá tu conexión.',
       NOT_AUTHENTICATED: 'No hay una sesión activa. Intentá de nuevo.',
-      GOOGLE_EMAIL_MISMATCH:
-        'La cuenta de Google elegida no coincide con el correo ingresado. Volvé a intentar con el correo correcto.',
-      GOOGLE_POPUP_BLOCKED:
-        'El navegador bloqueó la ventana de Google. Permití las ventanas emergentes o usá “Olvidé mi contraseña”.',
       'auth/invalid-credential': 'Correo o contraseña incorrectos.',
       'auth/invalid-login-credentials':
         'Correo o contraseña incorrectos.',
@@ -632,26 +563,16 @@ export class LoginComponent implements OnInit {
       'auth/user-not-found':
         'No existe una cuenta con ese correo. Volvé a empezar y usá “Crear contraseña”.',
       'auth/email-already-in-use':
-        'Ese correo ya tiene una cuenta en Firebase. Si usás Google, vinculá una contraseña; si ya tenías contraseña, ingresala o restablecela.',
-      'auth/credential-already-in-use':
-        'Ese correo ya tiene una contraseña asignada. Ingresala o usá “Olvidé mi contraseña”.',
-      'auth/provider-already-linked':
-        'Ese correo ya tiene una contraseña vinculada. Ingresala.',
-      'auth/account-exists-with-different-credential':
-        'Ese correo ya está registrado con otro método de acceso. Ingresá con contraseña o restablecela.',
+        'Ese correo ya existe en Firebase. Si ya tenía contraseña, usá “Ya tengo contraseña” o “Olvidé mi contraseña”. Si la cuenta se creó con otro método de acceso, eliminá el usuario en Firebase Console → Authentication → Users y volvé a crear la contraseña.',
       'auth/weak-password':
         'La contraseña debe tener al menos 6 caracteres.',
       'auth/user-disabled': 'Esta cuenta está deshabilitada.',
       'auth/requires-recent-login':
         'Volvé a iniciar sesión para completar esta acción.',
       'auth/operation-not-allowed':
-        'Habilitá Email/Password en Firebase Authentication. Si necesitás vincular con Google, habilitá también el proveedor Google.',
+        'El proveedor Email/Password está deshabilitado. En Firebase Console → Authentication → Sign-in method, habilitá Email/Password y guardá los cambios.',
       'auth/unauthorized-domain':
         'Este dominio no está autorizado en Firebase Authentication. Agregalo en Authentication → Settings → Authorized domains.',
-      'auth/popup-closed-by-user':
-        'Cerraste la ventana de Google antes de completar el acceso.',
-      'auth/cancelled-popup-request':
-        'Se canceló la ventana de Google. Volvé a intentar.',
       'auth/network-request-failed':
         'Sin conexión. Verificá tu conexión a internet.',
       unavailable:

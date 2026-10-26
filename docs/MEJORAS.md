@@ -19,11 +19,12 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 |---|---|
 | Contraseñas en texto plano dentro del bundle | Resuelto con Firebase Authentication. |
 | Login con usuario/contraseña | Reemplazado por Firebase Authentication con correo y contraseña. |
-| Cuentas con contraseña sin correo verificado | La verificación es opcional y no bloquea el acceso; se ofrece desde el dashboard. |
+| Cuentas con contraseña sin correo verificado | No se exige verificación de correo; la autorización es `config/access.allowedEmails`. |
 | Correos no autorizados podían llegar al paso de contraseña | Se valida `config/access.allowedEmails` antes de mostrar contraseña o asignación. |
+| La vista quedaba en “Verificando...” aunque Firebase ya había respondido | Se fuerza la detección de cambios (`ChangeDetectorRef`) después de las promesas en login y dashboard. |
 | Detección de contraseña dependía de Email enumeration protection | Se agregó el índice `acceso/{email}` con `passwordSet`, sin guardar contraseñas ni hashes. |
 | Usuarios sin tabla visible | Perfil en `usuarios/{uid}` (email, nombre, proveedor, último acceso); la contraseña queda en Firebase Auth, hasheada. |
-| Cuentas creadas solo con Google | Se ofrece vincular una contraseña con Google y conservar el mismo UID. |
+| Cuentas creadas con otro proveedor | La app no se conecta con Google ni con otros proveedores; si el correo ya existe, se elimina el usuario en Firebase Console. |
 | Acceso de cualquier cuenta | Lista global `config/access.allowedEmails`; el resto se desloguea y las reglas le bloquean los datos. |
 | Configuración manual inicial del hogar | Cada cuenta crea su propia `households/{uid}` y solo puede acceder a ella. |
 | Dependencia de un backend externo en Render | Reemplazado por Firestore. |
@@ -36,7 +37,7 @@ La app pasó de un prototipo con login hardcodeado y un backend externo a un sta
 | PrimeNG 17 con Angular 20 y `legacy-peer-deps` | Migrado a Optimus UI 2 + Angular 22, sin workaround ni licencia. |
 | PrimeNG 22 con licencia comercial | Reemplazado por Optimus UI 2.0.2 (MIT, sin registro). |
 | Karma/Jasmine con dependencias vulnerables | Migrado a Vitest 5 + jsdom. |
-| Sin tests | Hay tests del shell y del flujo de login (correo, contraseña, creación de cuenta y Google). |
+| Sin tests | Hay tests del shell y del flujo de login (correo, contraseña y creación de cuenta). |
 
 ## Prioridades siguientes
 
@@ -72,7 +73,7 @@ Actualmente solo se puede borrar todo el historial.
 ### 5. Seguridad adicional
 
 - Activar **Firebase App Check**.
-- Evaluar volver a exigir verificación de email cuando todas las cuentas estén verificadas.
+- Evaluar agregar verificación de email en el futuro, sin reemplazar la validación de `config/access`.
 - Agregar límites de uso y monitoreo de errores (Sentry o similar).
 - Revisar periódicamente las reglas con el simulador de Firestore.
 

@@ -1,17 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import {
-  EmailAuthProvider,
-  GoogleAuthProvider,
   createUserWithEmailAndPassword,
-  fetchSignInMethodsForEmail,
-  getRedirectResult,
-  linkWithCredential,
-  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
   signOut,
   updateProfile,
 } from 'firebase/auth';
@@ -26,7 +18,6 @@ export interface SessionState {
   uid: string;
   email: string;
   displayName: string;
-  emailVerified: boolean;
 }
 
 export interface UserIdentity {
@@ -43,69 +34,8 @@ export class AuthService {
   private readonly firestore: Firestore = inject(FIRESTORE);
   private readonly router = inject(Router);
   private readonly accessService = inject(AccessService);
-  private readonly googleProvider = new GoogleAuthProvider();
   private authError = '';
-  private passwordLinked = false;
-
-  constructor() {
-    this.googleProvider.setCustomParameters({
-      prompt: 'select_account',
-    });
-  }
-
-  /**
-   * Inicia sesión con Google.
-   *
-   * En celular/PWA usa redirect directo, porque los navegadores móviles
-   * suelen bloquear los popups. En escritorio usa popup y cae a redirect
-   * si el navegador lo bloquea.
-   */
-  async loginWithGoogle(): Promise<void> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    if (this.shouldUseRedirect()) {
-      await this.loginWithGoogleRedirect();
-      return;
-    }
-
-    try {
-      const credential = await signInWithPopup(this.auth, this.googleProvider);
-      await this.enforceAllowlist();
-      await this.saveUserProfile(credential.user);
-    } catch (error) {
-      const code = (error as { code?: string } | null)?.code;
-
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/operation-not-supported-in-this-environment'
-      ) {
-        await this.loginWithGoogleRedirect();
-        return;
-      }
-
-      throw error;
-    }
-  }
-
-  /** Fuerza el flujo de redirección (útil si el popup no se abre). */
-  async loginWithGoogleRedirect(): Promise<void> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    await signInWithRedirect(this.auth, this.googleProvider);
-  }
-
-  /** Devuelve los métodos de acceso registrados para un correo. */
-  async getSignInMethods(email: string): Promise<string[]> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    return fetchSignInMethodsForEmail(this.auth, this.normalizeEmail(email));
-  }
+  private passwordReady = false;
 
   /** Inicia sesión con el correo y la contraseña de Firebase Auth. */
   async loginWithEmailPassword(
@@ -125,15 +55,12 @@ export class AuthService {
 
     await this.enforceAllowlist();
     await this.saveUserProfile(credential.user);
-    this.passwordLinked = true;
+    this.passwordReady = true;
   }
 
   /**
    * Crea la cuenta y asigna la contraseña en el primer login.
    * Si el correo ya existe, Firebase devuelve auth/email-already-in-use.
-   *
-   * La cuenta se puede usar de inmediato. Además se envía un correo de
-   * verificación como recomendación de seguridad, pero no bloquea el acceso.
    */
   async registerWithEmailPassword(
     email: string,
@@ -153,127 +80,7 @@ export class AuthService {
     );
 
     await this.saveUserProfile(credential.user);
-    await this.savePasswordRecord(credential.user);
-    await this.sendVerificationEmailQuietly(credential.user);
-    this.passwordLinked = true;
-  }
-
-  /**
-   * Vincula una contraseña a una cuenta que ya existe con Google.
-   *
-   * Firebase no permite asignar contraseña a una cuenta federada sin
-   * autenticarse primero con Google. Este flujo hace eso y conserva el
-   * mismo UID, por lo que la casa y los gastos no se pierden.
-   */
-  async linkPasswordWithGoogle(
-    email: string,
-    password: string
-  ): Promise<void> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    const normalized = this.normalizeEmail(email);
-    await this.assertEmailAllowed(normalized);
-
-    let user = this.auth.currentUser;
-    const alreadySignedInWithGoogle =
-      !!user &&
-      this.normalizeEmail(user.email ?? '') === normalized &&
-      user.providerData.some(
-        (provider) => provider.providerId === 'google.com'
-      );
-
-    if (!alreadySignedInWithGoogle) {
-      try {
-        const credential = await signInWithPopup(
-          this.auth,
-          this.googleProvider
-        );
-        user = credential.user;
-      } catch (error) {
-        const code = (error as { code?: string } | null)?.code;
-
-        if (
-          code === 'auth/popup-blocked' ||
-          code === 'auth/operation-not-supported-in-this-environment'
-        ) {
-          throw new Error('GOOGLE_POPUP_BLOCKED');
-        }
-
-        throw error;
-      }
-    }
-
-    if (!user) {
-      throw new Error('NOT_AUTHENTICATED');
-    }
-
-    if (this.normalizeEmail(user.email ?? '') !== normalized) {
-      await this.signOutSilently();
-      throw new Error('GOOGLE_EMAIL_MISMATCH');
-    }
-
-    try {
-      const linked = await linkWithCredential(
-        user,
-        EmailAuthProvider.credential(normalized, password)
-      );
-
-      await this.enforceAllowlist();
-      await this.saveUserProfile(linked.user);
-      await this.savePasswordRecord(linked.user);
-      this.passwordLinked = true;
-    } catch (error) {
-      await this.signOutSilently();
-      throw error;
-    }
-  }
-
-  /** Reenvía el correo de verificación de la cuenta actual. */
-  async resendVerificationEmail(): Promise<void> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    const user = this.auth.currentUser;
-
-    if (!user) {
-      throw new Error('NOT_AUTHENTICATED');
-    }
-
-    if (user.emailVerified) {
-      return;
-    }
-
-    await sendEmailVerification(user, this.verificationSettings());
-  }
-
-  /**
-   * Recarga la cuenta y comprueba si ya verificó el correo.
-   * La verificación es opcional: no bloquea el uso de la app.
-   */
-  async refreshEmailVerification(): Promise<boolean> {
-    if (!isFirebaseConfigured()) {
-      throw new Error('FIREBASE_NOT_CONFIGURED');
-    }
-
-    const user = this.auth.currentUser;
-
-    if (!user) {
-      throw new Error('NOT_AUTHENTICATED');
-    }
-
-    await user.reload();
-
-    if (!user.emailVerified) {
-      return false;
-    }
-
-    await user.getIdToken(true);
-    await this.saveUserProfile(user);
-
-    return true;
+    this.passwordReady = true;
   }
 
   /**
@@ -313,7 +120,6 @@ export class AuthService {
             this.nameFromEmail(user.email ?? '') ||
             user.email?.trim() ||
             '',
-          emailVerified: user.emailVerified,
         }
       : null;
   }
@@ -327,33 +133,6 @@ export class AuthService {
     await sendPasswordResetEmail(this.auth, this.normalizeEmail(email));
   }
 
-  /** Completa un login con redirect al volver a la app. */
-  async handleRedirectResult(): Promise<void> {
-    if (!isFirebaseConfigured()) {
-      return;
-    }
-
-    try {
-      const result = await getRedirectResult(this.auth);
-
-      if (!result?.user) {
-        return;
-      }
-
-      try {
-        await this.accessService.assertAllowed();
-        await this.saveUserProfile(result.user);
-      } catch (error) {
-        await this.signOutSilently();
-        this.setAuthError(
-          error instanceof Error ? error.message : 'ACCESS_CHECK_FAILED'
-        );
-      }
-    } catch (error) {
-      console.error('Error al completar el login con Google:', error);
-    }
-  }
-
   async logout(): Promise<void> {
     this.authError = '';
     await this.signOutSilently();
@@ -361,7 +140,7 @@ export class AuthService {
   }
 
   async signOutSilently(): Promise<void> {
-    this.passwordLinked = false;
+    this.passwordReady = false;
     await signOut(this.auth);
   }
 
@@ -422,10 +201,6 @@ export class AuthService {
     );
   }
 
-  getCurrentUserEmail(): string {
-    return this.auth.currentUser?.email ?? '';
-  }
-
   getCurrentUserPhotoUrl(): string {
     return this.auth.currentUser?.photoURL ?? '';
   }
@@ -434,38 +209,36 @@ export class AuthService {
     return this.auth.currentUser?.uid ?? null;
   }
 
-  getCurrentUserEmailVerified(): boolean {
-    return this.auth.currentUser?.emailVerified ?? false;
-  }
-
-  /** Indica si la cuenta ya tiene una contraseña vinculada en Firebase Auth. */
-  hasPasswordProvider(): boolean {
-    return (
-      this.passwordLinked ||
-      (this.auth.currentUser?.providerData.some(
-        (provider) => provider.providerId === 'password'
-      ) ??
-        false)
-    );
-  }
-
-  /** Indica si la sesión actual está autenticada con Google. */
-  hasGoogleProvider(): boolean {
-    return (
-      this.auth.currentUser?.providerData.some(
-        (provider) => provider.providerId === 'google.com'
-      ) ?? false
-    );
-  }
-
   getCurrentIdentity(): UserIdentity {
-    const user = this.auth.currentUser;
-
     return {
-      uid: user?.uid ?? '',
-      email: user?.email ?? '',
+      uid: this.auth.currentUser?.uid ?? '',
+      email: this.auth.currentUser?.email ?? '',
       name: this.getCurrentUser(),
     };
+  }
+
+  /**
+   * Indica si la sesión actual se autenticó con correo y contraseña.
+   * Una sesión vieja de otro proveedor se rechaza.
+   */
+  async hasPasswordSession(): Promise<boolean> {
+    if (this.passwordReady) {
+      return true;
+    }
+
+    const user = this.auth.currentUser;
+
+    if (!user) {
+      return false;
+    }
+
+    try {
+      const token = await user.getIdTokenResult();
+      return token.signInProvider === 'password';
+    } catch (error) {
+      console.warn('No se pudo verificar el método de acceso.', error);
+      return false;
+    }
   }
 
   private async enforceAllowlist(): Promise<void> {
@@ -487,18 +260,14 @@ export class AuthService {
 
   private async saveUserProfile(user: User): Promise<void> {
     const displayName = await this.ensureDisplayName(user);
-    const provider = this.providerOf(user);
-    const profile: Record<string, unknown> = {
-      email: (user.email ?? '').trim().toLowerCase(),
+    const email = (user.email ?? '').trim().toLowerCase();
+    const profile = {
+      email,
       displayName,
-      provider,
-      emailVerified: user.emailVerified,
+      provider: 'password',
+      passwordSet: true,
       lastLogin: serverTimestamp(),
     };
-
-    if (provider === 'password') {
-      profile['passwordSet'] = true;
-    }
 
     try {
       await setDoc(
@@ -513,9 +282,7 @@ export class AuthService {
       );
     }
 
-    if (provider === 'password') {
-      await this.savePasswordRecord(user);
-    }
+    await this.savePasswordRecord(user);
   }
 
   /**
@@ -577,52 +344,7 @@ export class AuthService {
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
-  private providerOf(user: User): 'password' | 'google.com' {
-    return user.providerData.some(
-      (provider) => provider.providerId === 'password'
-    )
-      ? 'password'
-      : 'google.com';
-  }
-
-  private async sendVerificationEmailQuietly(user: User): Promise<boolean> {
-    try {
-      await sendEmailVerification(user, this.verificationSettings());
-      return true;
-    } catch (error) {
-      console.warn('No se pudo enviar el correo de verificación.', error);
-      return false;
-    }
-  }
-
-  private verificationSettings(): {
-    url: string;
-    handleCodeInApp: boolean;
-  } {
-    return {
-      url: `${window.location.origin}/login`,
-      handleCodeInApp: false,
-    };
-  }
-
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
-  }
-
-  private shouldUseRedirect(): boolean {
-    if (typeof navigator === 'undefined' || typeof window === 'undefined') {
-      return true;
-    }
-
-    const userAgent = navigator.userAgent || '';
-    const isMobile =
-      /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(userAgent);
-    const isIPadOS =
-      /Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1;
-    const isStandalone =
-      window.matchMedia?.('(display-mode: standalone)').matches === true ||
-      (navigator as Navigator & { standalone?: boolean }).standalone === true;
-
-    return isMobile || isIPadOS || isStandalone;
   }
 }

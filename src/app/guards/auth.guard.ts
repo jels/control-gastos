@@ -30,9 +30,9 @@ export class AuthGuard implements CanActivate {
       return this.router.createUrlTree(['/login']);
     }
 
-    // Una sesión de Google sin contraseña debe pasar por el login para
-    // vincular una contraseña antes de entrar al dashboard.
-    if (!this.authService.hasPasswordProvider()) {
+    // Una sesión vieja sin contraseña debe pasar por el login para
+    // ingresar o crear una contraseña antes de entrar al dashboard.
+    if (!(await this.authService.hasPasswordSession())) {
       return this.router.createUrlTree(['/login']);
     }
 

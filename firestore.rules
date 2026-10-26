@@ -18,10 +18,8 @@ service cloud.firestore {
     }
 
     // Solo los emails de la lista pueden usar la app y tocar datos.
-    // No se exige email_verified: el login con contraseña es directo y la
-    // autorización real la define esta lista. Ver docs/FIREBASE.md.
-    // Si más adelante querés exigir verificación, agregá:
-    //   && request.auth.token.email_verified == true
+    // La autorización se define exclusivamente por esta lista; no se usan
+    // proveedores externos ni verificación de email.
     function isAllowedEmail() {
       return isSignedIn()
         && request.auth.token.email != null

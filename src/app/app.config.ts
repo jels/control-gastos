@@ -1,7 +1,5 @@
 import {
   ApplicationConfig,
-  inject,
-  provideAppInitializer,
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
 } from '@angular/core';
@@ -10,7 +8,6 @@ import Aura from '@openng/optimus-ui-themes/aura';
 import { provideOptimus } from '@openng/optimus-ui/config';
 import { routes } from './app.routes';
 import { provideFirebase } from './firebase.providers';
-import { AuthService } from './services/auth.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -23,9 +20,5 @@ export const appConfig: ApplicationConfig = {
       },
     }),
     provideFirebase(),
-    provideAppInitializer(async () => {
-      const auth = inject(AuthService);
-      await auth.handleRedirectResult();
-    }),
   ],
 };
